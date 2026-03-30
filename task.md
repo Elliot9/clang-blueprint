@@ -128,6 +128,37 @@
 
 ---
 
+## Phase 5：深度探索 Deep Dive（圖形化互動升級）
+
+> 核心目標：讓用戶從任意一個類別出發，像爬樹一樣理解整個 codebase 的互動關係；方法層面能直白看到「誰呼叫誰、誰依賴誰」。
+
+### Sprint 5.1 — 方法級互動視覺化
+
+**問題**：目前展開節點只能看到方法 signature，無法直觀得知這個方法與哪些其他類別產生互動。
+
+- [ ] **P5-01** `ast_parser.py` 在 `interfaceMeta` 中新增 `usedTypes[]`：記錄每個 public method 的參數型別 + 返回型別中涉及的非 trivial 類別名稱
+- [ ] **P5-02** 展開節點後，每個方法行右側顯示涉及的類別名稱（小 badge，例如 `[NVMeDriver]`）；badge 顏色對應 dependency type
+- [ ] **P5-03** 點擊方法的 class badge → 畫布自動展開並 focus 到對應節點（若不在畫布則從 cachedEntries 載入）
+- [ ] **P5-04** hover badge 顯示 tooltip：`NVMeDriver — composition dependency`
+
+### Sprint 5.2 — 節點點擊展開鄰居（Graph Exploration）
+
+**問題**：搜尋結果只顯示符合關鍵字的類別 + 靜態 1-hop 鄰居；點擊一個節點後畫布不會繼續擴展，無法「由一個點擴展開來」探索。
+
+- [ ] **P5-05** 節點 header 顯示「+N」badge：N = 該節點有幾個相依類別尚未出現在畫布中
+- [ ] **P5-06** 點擊「+N」badge → 將該節點所有未顯示的 1-hop 鄰居（deps + baseClasses）從 cachedEntries 載入，加入畫布
+- [ ] **P5-07** 新載入的節點以 fade-in 動畫出現，排列在被展開節點右側 / 下方，不覆蓋既有節點
+- [ ] **P5-08** 支援連續多次展開：每個新載入的節點也帶有自己的「+N」badge，可繼續向外探索
+- [ ] **P5-09** 「收合最後一次展開」按鈕（toolbar 或 Undo）：移除最近一批加入的鄰居節點
+
+### Sprint 5.3 — 探索歷史與起點重置
+
+- [ ] **P5-10** 實作探索歷史棧（exploration stack）：每次展開操作記錄 `{addedClasses[], triggerClass}`
+- [ ] **P5-11** `Ctrl+Z` / toolbar Undo 按鈕：彈出最後一次展開，還原畫布狀態
+- [ ] **P5-12** 右鍵選單新增「從這裡開始探索」：清空畫布，只保留該節點，用戶可從零重新向外展開
+
+---
+
 ## 優先順序（MVP 最小可行產品）
 
 > 完成以下項目即可示範核心價值：
