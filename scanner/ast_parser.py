@@ -723,7 +723,7 @@ def _default_clang_args(extra_args: Optional[list[str]]) -> list[str]:
     res = _linux_clang_resource_dir_args()
     if not res:
         res = _linux_gcc_builtin_include_args()
-    return res + core
+    return res + ["-Wno-error", "-ferror-limit=0"] + core
 
 
 def parse_files(
@@ -758,14 +758,20 @@ def parse_files(
     else:
         _linux_res = []
 
+    # These flags ensure libclang treats all errors as non-fatal for AST walking:
+    # -Wno-error       : neutralise any -Werror in compile_commands so warnings
+    #                    don't abort parsing
+    # -ferror-limit=0  : don't stop after N errors (clang default is 20)
+    _analysis_flags = ["-Wno-error", "-ferror-limit=0"]
+
     all_entries: dict[str, BlueprintEntry] = {}
 
     for src in source_files:
         src_abs = os.path.abspath(src)
         raw_args = compile_db.get(src_abs, default_args)
-        # Filter GCC-only flags and inject resource-dir on Linux
+        # Filter GCC-only flags, inject resource-dir and analysis flags
         if raw_args is not default_args:
-            args = _linux_res + _filter_gcc_flags(raw_args)
+            args = _linux_res + _analysis_flags + _filter_gcc_flags(raw_args)
         else:
             args = raw_args
 
