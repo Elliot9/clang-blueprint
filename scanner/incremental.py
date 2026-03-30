@@ -19,7 +19,7 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
-from scanner.ast_parser import parse_files, scan_directory
+from scanner.ast_parser import parse_files, scan_directory, _is_excluded, load_blueprintignore
 
 DEFAULT_CACHE_NAME = ".blueprint_cache.json"
 
@@ -107,9 +107,7 @@ def incremental_scan(
     compile_commands_path: Optional[str] = None,
     cache_path: Optional[str] = None,
     extensions: tuple[str, ...] = (".cpp", ".cxx", ".cc", ".c", ".h", ".hpp", ".hxx"),
-    exclude_patterns: tuple[str, ...] = (
-        "third_party", "vendor", "extern", "build", ".git"
-    ),
+    exclude_patterns: list[str] | tuple[str, ...] | None = None,
 ) -> list[dict[str, Any]]:
     """
     Perform an incremental scan of `project_root`.
@@ -122,9 +120,17 @@ def incremental_scan(
     Returns:
         Merged list of blueprint_index entry dicts (cached + newly parsed).
     """
+    _DEFAULT_EXCLUDES = ["third_party", "vendor", "extern", "build", ".git"]
+
     root = Path(project_root).resolve()
     if cache_path is None:
         cache_path = str(root / DEFAULT_CACHE_NAME)
+
+    # P6-03/04: build final exclude pattern list (CLI + .blueprintignore + defaults)
+    if exclude_patterns is None:
+        patterns = _DEFAULT_EXCLUDES + load_blueprintignore(str(root))
+    else:
+        patterns = list(exclude_patterns) + load_blueprintignore(str(root))
 
     cache = load_cache(cache_path)
     file_cache: dict[str, Any] = cache.get("files", {})
@@ -136,10 +142,15 @@ def incremental_scan(
             continue
         if path.suffix.lower() not in extensions:
             continue
-        parts = path.parts
-        if any(excl in parts for excl in exclude_patterns):
+        if _is_excluded(str(path), str(root), patterns):
             continue
         all_source_files.append(str(path.resolve()))
+
+    # P6-03: also evict cached entries that now match exclude patterns
+    excluded_from_cache = [fp for fp in file_cache if _is_excluded(fp, str(root), patterns)]
+    for fp in excluded_from_cache:
+        del file_cache[fp]
+        print(f"[incremental] Evicted excluded path from cache: {fp}", file=sys.stderr)
 
     current_files_set = set(all_source_files)
 

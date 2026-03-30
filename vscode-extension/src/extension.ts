@@ -485,9 +485,15 @@ export function activate(context: vscode.ExtensionContext): void {
       // Also trigger a Python scan if a terminal is available
       const root = getWorkspaceRoot();
       if (root) {
+        const excludePaths = getConfig<string[]>("excludePaths") ?? [];
+        const excludeArgs = excludePaths
+          .map(p => `--exclude "${p}"`)
+          .join(" ");
         const terminal = vscode.window.createTerminal("Blueprint Rebuild");
         terminal.show();
-        terminal.sendText(`cd "${root}" && python -m scanner.main scan --project-root . --output blueprint_index.json`);
+        terminal.sendText(
+          `cd "${root}" && python3 -m scanner.main scan --project-root . --output blueprint_index.json${excludeArgs ? " " + excludeArgs : ""}`
+        );
       }
 
       // Rebuild the AI server index

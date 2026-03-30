@@ -123,6 +123,12 @@
           ],
           "default": "TB",
           "description": "Default graph layout direction (TB=top-bottom, LR=left-right)"
+        },
+        "clangBlueprint.excludePaths": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Glob patterns of directories/files to exclude from scanning (e.g. [\"third_party/**\", \"build/**\"]). Merged with .blueprintignore if present."
         }
       }
     },

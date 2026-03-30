@@ -168,6 +168,19 @@
 
 ---
 
+## Phase 6：掃描控制 — Exclude Paths
+
+> 目標：讓用戶可以指定不要解析的目錄或檔案 pattern，方便排除 third-party、generated code、test fixtures 等雜訊。
+
+- [x] **P6-01** `scanner/main.py`：`scan` 子命令新增 `--exclude` 選項（可重複使用，支援 glob pattern，例如 `--exclude "third_party/**" --exclude "build/**"`）
+- [x] **P6-02** `scanner/ast_parser.py`：`scan_directory()` 與 `parse_files()` 接受 `exclude_patterns: list[str]` 參數，在收集檔案清單時過濾掉符合 pattern 的路徑
+- [x] **P6-03** `scanner/incremental.py`：`incremental_scan()` 同樣支援 `exclude_patterns`，傳遞給底層 `parse_files()`，並在快取失效時正確清除被排除的 entry
+- [x] **P6-04** 支援 `.blueprintignore` 設定檔（放在 project root，格式同 `.gitignore`）：若存在則自動讀取，與 `--exclude` 合併使用
+- [x] **P6-05** VS Code 插件 `package.json` 新增設定 `clangBlueprint.excludePaths`（字串陣列），`rebuildIndex` 指令執行 scan 時自動帶入 `--exclude` 參數
+- [x] **P6-06** 撰寫 `tests/test_exclude.py`：驗證被排除目錄內的類別不出現在 `blueprint_index.json`
+
+---
+
 ## 優先順序（MVP 最小可行產品）
 
 > 完成以下項目即可示範核心價值：

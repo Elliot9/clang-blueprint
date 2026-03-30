@@ -64,6 +64,9 @@ def cmd_scan(args: argparse.Namespace) -> int:
 
     t0 = time.perf_counter()
 
+    # P6-01: collect --exclude patterns (may be repeated); None = use defaults
+    exclude_patterns: Optional[list[str]] = args.exclude if args.exclude else None
+
     if args.incremental:
         from scanner.incremental import incremental_scan
         cache_path = args.cache or None
@@ -72,6 +75,7 @@ def cmd_scan(args: argparse.Namespace) -> int:
             project_root=project_root,
             compile_commands_path=compile_commands,
             cache_path=cache_path,
+            exclude_patterns=exclude_patterns,
         )
     else:
         from scanner.ast_parser import scan_directory
@@ -79,6 +83,7 @@ def cmd_scan(args: argparse.Namespace) -> int:
         entries = scan_directory(
             project_root=project_root,
             compile_commands_path=compile_commands,
+            exclude_patterns=exclude_patterns,
         )
 
     elapsed = time.perf_counter() - t0
@@ -215,6 +220,16 @@ def build_parser() -> argparse.ArgumentParser:
     scan_parser.add_argument(
         "--cache",
         help="Path to incremental cache file (default: <project-root>/.blueprint_cache.json)",
+    )
+    scan_parser.add_argument(
+        "--exclude", "-e",
+        action="append",
+        metavar="PATTERN",
+        help=(
+            "Glob pattern of paths to exclude from scanning "
+            "(may be repeated, e.g. --exclude 'third_party/**' --exclude 'build/**'). "
+            "Patterns in .blueprintignore are always merged in automatically."
+        ),
     )
 
     # --- diagram ---

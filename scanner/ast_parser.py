@@ -7,6 +7,7 @@ the blueprint_index schema.
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import os
 import re
@@ -832,11 +833,69 @@ def parse_files(
     return [entry.to_dict() for entry in all_entries.values()]
 
 
+# ---------------------------------------------------------------------------
+# P6-02/04: Exclude-path helpers
+# ---------------------------------------------------------------------------
+
+def load_blueprintignore(project_root: str) -> list[str]:
+    """
+    P6-04: Read .blueprintignore from project_root.
+    Format: one glob pattern per line; '#' comments and blank lines are ignored.
+    Returns a list of patterns (may be empty if file doesn't exist).
+    """
+    ignore_path = Path(project_root) / ".blueprintignore"
+    if not ignore_path.is_file():
+        return []
+    patterns: list[str] = []
+    with open(ignore_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            patterns.append(line)
+    return patterns
+
+
+def _is_excluded(file_path: str, project_root: str, patterns: list[str]) -> bool:
+    """
+    Return True if `file_path` matches any exclude pattern.
+
+    Patterns are matched against:
+    1. The relative path from project_root (e.g. "third_party/foo/bar.cpp")
+    2. Each individual directory component (for simple name patterns like "build")
+
+    Supports standard glob wildcards: *, **, ?, [seq].
+    """
+    if not patterns:
+        return False
+    root = Path(project_root).resolve()
+    try:
+        rel = str(Path(file_path).resolve().relative_to(root))
+    except ValueError:
+        rel = file_path
+    # Normalise separators
+    rel = rel.replace("\\", "/")
+
+    for pat in patterns:
+        pat_norm = pat.replace("\\", "/")
+        # 1. Match against full relative path (supports "third_party/**", "src/gen/*.cpp")
+        if fnmatch.fnmatch(rel, pat_norm):
+            return True
+        # 2. Also try matching with "**/" prefix so bare name "build" matches "build/…"
+        if fnmatch.fnmatch(rel, f"**/{pat_norm}") or fnmatch.fnmatch(rel, f"{pat_norm}/**"):
+            return True
+        # 3. Match each path component for simple directory names (e.g. "vendor")
+        parts = rel.split("/")
+        if any(fnmatch.fnmatch(part, pat_norm) for part in parts):
+            return True
+    return False
+
+
 def scan_directory(
     project_root: str,
     compile_commands_path: Optional[str] = None,
     extensions: tuple[str, ...] = (".cpp", ".cxx", ".cc", ".c", ".h", ".hpp", ".hxx"),
-    exclude_patterns: tuple[str, ...] = ("third_party", "vendor", "extern", "build", ".git"),
+    exclude_patterns: list[str] | tuple[str, ...] | None = None,
 ) -> list[dict[str, Any]]:
     """
     Recursively scan an entire project directory for C/C++ source files
@@ -846,11 +905,20 @@ def scan_directory(
         project_root: Root directory to scan.
         compile_commands_path: Optional path to compile_commands.json.
         extensions: File extensions to include.
-        exclude_patterns: Directory name fragments to skip.
+        exclude_patterns: Glob patterns for paths to exclude. If None, reads
+            .blueprintignore and applies built-in defaults
+            (third_party, vendor, extern, build, .git).
 
     Returns:
         List of blueprint_index entry dicts.
     """
+    _DEFAULT_EXCLUDES = ["third_party", "vendor", "extern", "build", ".git"]
+
+    if exclude_patterns is None:
+        patterns = _DEFAULT_EXCLUDES + load_blueprintignore(project_root)
+    else:
+        patterns = list(exclude_patterns) + load_blueprintignore(project_root)
+
     root = Path(project_root)
     source_files: list[str] = []
 
@@ -859,9 +927,7 @@ def scan_directory(
             continue
         if path.suffix.lower() not in extensions:
             continue
-        # Exclude build/vendor directories
-        parts = path.parts
-        if any(excl in parts for excl in exclude_patterns):
+        if _is_excluded(str(path), project_root, patterns):
             continue
         source_files.append(str(path))
 
