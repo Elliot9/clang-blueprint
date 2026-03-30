@@ -121,10 +121,10 @@
 
 ### Sprint 4.5 — 搜尋與 UX 強化
 - [x] **UI-11** 搜尋結果顯示 match count（例如「找到 3 個類別 + 12 個鄰居」）
-- [ ] **UI-12** 支援 namespace 過濾（例如 `ns:storage`）
+- [x] **UI-12** 支援 namespace 過濾（例如 `ns:storage`）
 - [x] **UI-13** 右鍵選單加入「只顯示此類別的 neighborhood」選項
-- [ ] **UI-14** 節點顏色依 namespace 區分
-- [ ] **UI-15** 匯出目前可見圖表為 SVG 或複製 Mermaid 語法
+- [x] **UI-14** 節點顏色依 namespace 區分
+- [x] **UI-15** 匯出目前可見圖表為 SVG 或複製 Mermaid 語法
 
 ---
 
