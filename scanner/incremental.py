@@ -187,6 +187,7 @@ def incremental_scan(
             changed_files,
             project_root=str(root),
             compile_commands_path=compile_commands_path,
+            exclude_patterns=patterns,
         )
 
         # Group newly parsed entries back by source file for cache storage.

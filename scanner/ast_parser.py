@@ -753,6 +753,7 @@ def parse_files(
     project_root: str,
     compile_commands_path: Optional[str] = None,
     extra_args: Optional[list[str]] = None,
+    exclude_patterns: Optional[list[str]] = None,
 ) -> list[dict[str, Any]]:
     """
     Parse a list of C/C++ source files with libclang and return a list of
@@ -767,6 +768,8 @@ def parse_files(
     Returns:
         List of dicts matching the blueprint_index entry schema.
     """
+    _exclude_patterns: list[str] = list(exclude_patterns) if exclude_patterns else []
+
     index = cindex.Index.create()
     compile_db: dict[str, list[str]] = {}
     if compile_commands_path:
@@ -811,7 +814,10 @@ def parse_files(
             print(f"[ast_parser] WARNING: Failed to parse {src}: {e}", file=sys.stderr)
             continue
 
-        # Report diagnostics at warning level
+        # Report diagnostics at warning level — only for files inside project_root
+        # and not matching exclude patterns. Third-party headers pulled in via
+        # #include will still be processed by libclang but their warnings are
+        # suppressed here to avoid noise from vendored code.
         _sev_names = {
             cindex.Diagnostic.Warning: "WARNING",
             cindex.Diagnostic.Error: "ERROR",
@@ -819,6 +825,13 @@ def parse_files(
         }
         for diag in tu.diagnostics:
             if diag.severity >= cindex.Diagnostic.Warning:
+                diag_file = str(diag.location.file) if diag.location.file else ""
+                # Skip diagnostics from outside the project (transitive headers)
+                if diag_file and not _is_definition_in_project(diag_file, project_root):
+                    continue
+                # Skip diagnostics from excluded paths
+                if diag_file and _is_excluded(diag_file, project_root, _exclude_patterns):
+                    continue
                 sev = _sev_names.get(diag.severity, "NOTE")
                 print(
                     f"[ast_parser] {sev}: {diag.spelling} "
@@ -940,4 +953,5 @@ def scan_directory(
         source_files,
         project_root=project_root,
         compile_commands_path=compile_commands_path,
+        exclude_patterns=patterns,
     )
