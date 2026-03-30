@@ -136,26 +136,35 @@
 
 **問題**：目前展開節點只能看到方法 signature，無法直觀得知這個方法與哪些其他類別產生互動。
 
-- [ ] **P5-01** `ast_parser.py` 在 `interfaceMeta` 中新增 `usedTypes[]`：記錄每個 public method 的參數型別 + 返回型別中涉及的非 trivial 類別名稱
-- [ ] **P5-02** 展開節點後，每個方法行右側顯示涉及的類別名稱（小 badge，例如 `[NVMeDriver]`）；badge 顏色對應 dependency type
-- [ ] **P5-03** 點擊方法的 class badge → 畫布自動展開並 focus 到對應節點（若不在畫布則從 cachedEntries 載入）
-- [ ] **P5-04** hover badge 顯示 tooltip：`NVMeDriver — composition dependency`
+- [x] **P5-01** `ast_parser.py` 在 `interfaceMeta` 中新增 `usedTypes[]`：記錄每個 public method 的參數型別 + 返回型別中涉及的非 trivial 類別名稱
+- [x] **P5-02** 展開節點後，每個方法行右側顯示涉及的類別名稱（小 badge，例如 `[NVMeDriver]`）；badge 顏色對應 dependency type
+- [x] **P5-03** 點擊方法的 class badge → 畫布自動展開並 focus 到對應節點（若不在畫布則從 cachedEntries 載入）
+- [x] **P5-04** hover badge 顯示 tooltip：`NVMeDriver — composition dependency`
 
 ### Sprint 5.2 — 節點點擊展開鄰居（Graph Exploration）
 
 **問題**：搜尋結果只顯示符合關鍵字的類別 + 靜態 1-hop 鄰居；點擊一個節點後畫布不會繼續擴展，無法「由一個點擴展開來」探索。
 
-- [ ] **P5-05** 節點 header 顯示「+N」badge：N = 該節點有幾個相依類別尚未出現在畫布中
-- [ ] **P5-06** 點擊「+N」badge → 將該節點所有未顯示的 1-hop 鄰居（deps + baseClasses）從 cachedEntries 載入，加入畫布
-- [ ] **P5-07** 新載入的節點以 fade-in 動畫出現，排列在被展開節點右側 / 下方，不覆蓋既有節點
-- [ ] **P5-08** 支援連續多次展開：每個新載入的節點也帶有自己的「+N」badge，可繼續向外探索
-- [ ] **P5-09** 「收合最後一次展開」按鈕（toolbar 或 Undo）：移除最近一批加入的鄰居節點
+- [x] **P5-05** 節點 header 顯示「+N」badge：N = 該節點有幾個相依類別尚未出現在畫布中
+- [x] **P5-06** 點擊「+N」badge → 將該節點所有未顯示的 1-hop 鄰居（deps + baseClasses）從 cachedEntries 載入，加入畫布
+- [x] **P5-07** 新載入的節點以 fade-in 動畫出現，排列在被展開節點右側 / 下方，不覆蓋既有節點
+- [x] **P5-08** 支援連續多次展開：每個新載入的節點也帶有自己的「+N」badge，可繼續向外探索
+- [x] **P5-09** 「收合最後一次展開」按鈕（toolbar 或 Undo）：移除最近一批加入的鄰居節點
 
 ### Sprint 5.3 — 探索歷史與起點重置
 
-- [ ] **P5-10** 實作探索歷史棧（exploration stack）：每次展開操作記錄 `{addedClasses[], triggerClass}`
-- [ ] **P5-11** `Ctrl+Z` / toolbar Undo 按鈕：彈出最後一次展開，還原畫布狀態
-- [ ] **P5-12** 右鍵選單新增「從這裡開始探索」：清空畫布，只保留該節點，用戶可從零重新向外展開
+- [x] **P5-10** 實作探索歷史棧（exploration stack）：每次展開操作記錄 `{addedClasses[], triggerClass}`
+- [x] **P5-11** `Ctrl+Z` / toolbar Undo 按鈕：彈出最後一次展開，還原畫布狀態
+- [x] **P5-12** 右鍵選單新增「從這裡開始探索」：清空畫布，只保留該節點，用戶可從零重新向外展開
+
+### Sprint 5.4 — RAG 增強 AI Indexing
+
+> 目標：讓 `interfaceMeta.usedTypes` 與方法簽名參與 AI 索引，讓 `/query` 更精準回傳涉及特定類別互動的相關類別。
+
+- [x] **P5-13** 更新 `ai_api/indexer.py`：將 `interfaceMeta[].signature` 與 `interfaceMeta[].usedTypes` 納入 TF-IDF 文字欄位（目前只有 className + responsibility + interfaces[]）
+- [x] **P5-14** 在文字向量化時對 `usedTypes` 中的類別名做 CamelCase 展開（與現有 className 展開一致），提升 token 覆蓋率
+- [x] **P5-15** 更新 `POST /query` 回傳結構：在每個結果項目加入 `matchedMethods[]`，標示哪些方法的 signature 與 usedTypes 貢獻了這次命中
+- [x] **P5-16** 撰寫 `tests/test_indexer_v2.py`：驗證包含 usedTypes 的查詢（例如 "NVMeDriver interaction"）top-1 命中率 ≥ 原版
 
 ---
 

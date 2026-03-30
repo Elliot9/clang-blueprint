@@ -121,6 +121,19 @@ def _entry_to_text(entry: dict[str, Any]) -> str:
         if m:
             parts.append(_expand_camel(m.group(1)))
 
+    # P5-13/14: interfaceMeta usedTypes — include type names + CamelCase-expanded forms
+    for meta in entry.get("interfaceMeta", []):
+        # Include full method signature text
+        sig = meta.get("signature", "")
+        if sig:
+            tokens = re.sub(r"[()<>,*&]", " ", sig)
+            parts.append(tokens)
+        # Include each usedType with CamelCase expansion (P5-14)
+        for used_type in meta.get("usedTypes", []):
+            short = used_type.split("::")[-1]  # strip namespace
+            parts.append(short)
+            parts.append(_expand_camel(short))
+
     for base in entry.get("baseClasses", []):
         base_expanded = re.sub(r"([a-z])([A-Z])", r"\1 \2", base)
         parts.append(base)
@@ -138,6 +151,33 @@ def _entry_to_text(entry: dict[str, Any]) -> str:
         parts.append(tp)
 
     return " ".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# P5-15: Method attribution helper
+# ---------------------------------------------------------------------------
+
+def _find_matched_methods(entry: dict[str, Any], query_tokens: set[str]) -> list[str]:
+    """
+    Return the signatures of methods whose signature or usedTypes overlap
+    with any query token.  Used to tell callers *why* an entry was returned.
+    """
+    matched: list[str] = []
+    for meta in entry.get("interfaceMeta", []):
+        sig = meta.get("signature", "")
+        used = meta.get("usedTypes", [])
+        # Tokenize the signature
+        sig_tokens = set(re.findall(r"[\u4e00-\u9fff\u3040-\u30ff]|\b\w\w+\b", sig.lower()))
+        # Tokenize usedTypes (short names + camel-expanded)
+        type_tokens: set[str] = set()
+        for t in used:
+            short = t.split("::")[-1]
+            type_tokens.update(re.findall(r"[a-z]+", _expand_camel(short)))
+            type_tokens.add(short.lower())
+        combined = sig_tokens | type_tokens
+        if combined & query_tokens:
+            matched.append(sig)
+    return matched
 
 
 # ---------------------------------------------------------------------------
@@ -324,12 +364,22 @@ class BlueprintIndexer:
         top_indices = np.argpartition(sims, -k)[-k:]
         top_indices = top_indices[np.argsort(sims[top_indices])[::-1]]
 
+        # P5-15: tokenize query for matchedMethods attribution
+        query_tokens = set(re.findall(r"[\u4e00-\u9fff\u3040-\u30ff]|\b\w\w+\b", processed.lower()))
+
         results = []
         for idx in top_indices:
             score = float(sims[idx])
             if score < 1e-9:
                 continue  # Skip zero-score results
-            results.append({"score": round(score, 6), "entry": self._entries[idx]})
+            entry = self._entries[idx]
+            # Find which methods contributed (signature or usedTypes overlap with query)
+            matched_methods = _find_matched_methods(entry, query_tokens)
+            results.append({
+                "score": round(score, 6),
+                "entry": entry,
+                "matchedMethods": matched_methods,
+            })
 
         return results
 
@@ -347,16 +397,22 @@ class BlueprintIndexer:
         sims_matrix = cosine_similarity(query_vecs, self._matrix)
 
         results = []
-        for sims in sims_matrix:
+        for q, sims in zip(queries, sims_matrix):
             k = min(top_k, len(self._entries))
             top_indices = np.argpartition(sims, -k)[-k:]
             top_indices = top_indices[np.argsort(sims[top_indices])[::-1]]
+            q_tokens = set(re.findall(r"[\u4e00-\u9fff\u3040-\u30ff]|\b\w\w+\b", q.lower()))
             batch_result = []
             for idx in top_indices:
                 score = float(sims[idx])
                 if score < 1e-9:
                     continue
-                batch_result.append({"score": round(score, 6), "entry": self._entries[idx]})
+                entry = self._entries[idx]
+                batch_result.append({
+                    "score": round(score, 6),
+                    "entry": entry,
+                    "matchedMethods": _find_matched_methods(entry, q_tokens),
+                })
             results.append(batch_result)
 
         return results

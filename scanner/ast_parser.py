@@ -376,9 +376,21 @@ class ASTVisitor:
                 if child.access_specifier == cindex.AccessSpecifier.PUBLIC:
                     sig = _method_signature(child)
                     interfaces.append(sig)
+                    # P5-01: collect non-trivial types used by this method
+                    used_types: list[str] = []
+                    for param in child.get_arguments():
+                        t = _canonical_type_name(param)
+                        if t and not _is_trivial_type(t) and t not in used_types:
+                            used_types.append(t)
+                    if child.result_type and child.result_type.spelling:
+                        ret = child.result_type.spelling
+                        ret = re.sub(r"\bconst\b|\bvolatile\b|\*|&", "", ret).strip().lstrip(":")
+                        if ret and not _is_trivial_type(ret) and ret not in used_types:
+                            used_types.append(ret)
                     interface_meta.append({
                         "signature": sig,
                         "lineNumber": child.location.line,
+                        "usedTypes": used_types,
                     })
 
                 # Inspect method parameters for association dependencies
