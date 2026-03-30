@@ -908,8 +908,11 @@ document.getElementById('btn-fit').addEventListener('click', fitView);
 document.getElementById('btn-reset').addEventListener('click', () => {
   scale = 1; panX = 0; panY = 0; applyTransform();
 });
+let _filterDebounceTimer = null;
 document.getElementById('filter-input').addEventListener('input', e => {
-  applyFilter(e.target.value);
+  const val = e.target.value;
+  clearTimeout(_filterDebounceTimer);
+  _filterDebounceTimer = setTimeout(() => applyFilter(val), 300);
 });
 
 document.getElementById('btn-toggle-private').addEventListener('click', function() {
