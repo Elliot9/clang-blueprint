@@ -113,7 +113,7 @@
 
 ### Sprint 4.3 — 方法詳細資訊
 - [x] **UI-07** hover 方法名稱顯示 tooltip：完整 signature（含 template params、const/virtual）
-- [ ] **UI-08** 點擊方法名稱 → 跳轉到該方法的原始碼行號
+- [x] **UI-08** 點擊方法名稱 → 跳轉到該方法的原始碼行號
 
 ### Sprint 4.4 — Edge 互動
 - [x] **UI-09** hover edge 顯示 tooltip：dependency 類型 + cardinality

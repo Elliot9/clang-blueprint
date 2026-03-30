@@ -628,6 +628,7 @@ function createNodeEl(entry) {
 
   // Methods section
   const methods = entry.interfaces || [];
+  const methodMeta = entry.interfaceMeta || [];
   if (methods.length > 0) {
     const lbl = document.createElement('div');
     lbl.className = 'node-section-label';
@@ -636,16 +637,23 @@ function createNodeEl(entry) {
 
     const mDiv = document.createElement('div');
     mDiv.className = 'node-methods';
-    methods.forEach(sig => {
+    methods.forEach((sig, idx) => {
       const m = document.createElement('div');
       m.className = 'node-method';
       m.textContent = trimSignature(sig);
       // UI-07: full signature tooltip
       m.title = sig;
-      // UI-08: click method → jump to source (uses class line as best effort)
+      // UI-08: click method → jump to that method's exact line
+      const meta = methodMeta[idx];
+      const lineNum = meta ? meta.lineNumber : entry.lineNumber;
       m.addEventListener('click', (e) => {
         e.stopPropagation();
-        jumpToSource(entry);
+        vscode.postMessage({
+          type: 'nodeClick',
+          fileLocation: entry.fileLocation,
+          lineNumber: lineNum,
+          className: entry.className,
+        });
       });
       mDiv.appendChild(m);
     });

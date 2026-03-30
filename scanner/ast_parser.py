@@ -54,6 +54,8 @@ class BlueprintEntry:
     baseClasses: list[str]
     templateParams: list[str]
     attributes: list[str] = field(default_factory=list)
+    # UI-08: per-method line numbers for click-to-source
+    interfaceMeta: list[dict] = field(default_factory=list)  # [{signature, lineNumber}]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -69,6 +71,7 @@ class BlueprintEntry:
             ],
             "attributes": self.attributes,
             "interfaces": self.interfaces,
+            "interfaceMeta": self.interfaceMeta,
             "fileLocation": self.fileLocation,
             "lineNumber": self.lineNumber,
             "namespace": self.namespace,
@@ -285,6 +288,7 @@ class ASTVisitor:
         base_classes: list[str] = []
         attributes: list[str] = []
         interfaces: list[str] = []
+        interface_meta: list[dict] = []
         dependencies: list[Dependency] = []
         seen_deps: set[tuple[str, str]] = set()
 
@@ -372,6 +376,10 @@ class ASTVisitor:
                 if child.access_specifier == cindex.AccessSpecifier.PUBLIC:
                     sig = _method_signature(child)
                     interfaces.append(sig)
+                    interface_meta.append({
+                        "signature": sig,
+                        "lineNumber": child.location.line,
+                    })
 
                 # Inspect method parameters for association dependencies
                 for param in child.get_arguments():
@@ -408,6 +416,7 @@ class ASTVisitor:
             responsibility=responsibility,
             dependencies=dependencies,
             interfaces=interfaces,
+            interfaceMeta=interface_meta,
             fileLocation=rel_file,
             lineNumber=loc.line,
             namespace=namespace,

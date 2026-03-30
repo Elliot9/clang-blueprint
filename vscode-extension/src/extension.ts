@@ -18,6 +18,11 @@ interface Dependency {
   type: "composition" | "inheritance" | "association" | "dependency";
 }
 
+interface MethodMeta {
+  signature: string;
+  lineNumber: number;
+}
+
 interface BlueprintEntry {
   className: string;
   responsibility: string;
@@ -25,6 +30,8 @@ interface BlueprintEntry {
   /** Member fields: visibility (+/#/-) + type + name (from FIELD_DECL). */
   attributes?: string[];
   interfaces: string[];
+  /** UI-08: per-method line numbers for click-to-source */
+  interfaceMeta?: MethodMeta[];
   fileLocation: string;
   lineNumber: number;
   namespace: string;
