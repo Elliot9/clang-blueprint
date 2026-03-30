@@ -616,25 +616,96 @@ def _filter_gcc_flags(args: list[str]) -> list[str]:
 def _linux_clang_resource_dir_args() -> list[str]:
     """
     On Linux, libclang needs -resource-dir to find built-in headers like
-    stddef.h, stdarg.h, etc.  Try common clang binary names until one works.
+    stddef.h, stdarg.h, etc.
+
+    Strategy (in order):
+    1. Ask a clang binary via -print-resource-dir
+    2. Ask llvm-config for the prefix and derive the path
+    3. Glob common well-known paths under /usr/lib/clang/ and /usr/lib/llvm-*
+    4. Derive from the pip-installed libclang package location
     """
-    candidates = [
-        "clang",
-        "clang-18", "clang-17", "clang-16", "clang-15", "clang-14",
-    ]
-    for binary in candidates:
+    # 1. Try clang binary
+    for binary in ("clang", "clang-18", "clang-17", "clang-16", "clang-15", "clang-14"):
         try:
             result = subprocess.run(
                 [binary, "-print-resource-dir"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-                check=False,
+                capture_output=True, text=True, timeout=10, check=False,
             )
             if result.returncode == 0:
                 r = result.stdout.strip()
-                if r:
+                if r and os.path.isdir(r):
                     return ["-resource-dir", r]
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            continue
+
+    # 2. Try llvm-config
+    for binary in ("llvm-config", "llvm-config-18", "llvm-config-17", "llvm-config-16",
+                   "llvm-config-15", "llvm-config-14"):
+        try:
+            result = subprocess.run(
+                [binary, "--prefix"],
+                capture_output=True, text=True, timeout=10, check=False,
+            )
+            if result.returncode == 0:
+                prefix = result.stdout.strip()
+                # Resource dir is typically <prefix>/lib/clang/<version>
+                clang_lib = os.path.join(prefix, "lib", "clang")
+                if os.path.isdir(clang_lib):
+                    versions = sorted(os.listdir(clang_lib), reverse=True)
+                    for v in versions:
+                        rd = os.path.join(clang_lib, v)
+                        if os.path.isdir(rd):
+                            return ["-resource-dir", rd]
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            continue
+
+    # 3. Glob common system paths
+    import glob as _glob
+    for pattern in (
+        "/usr/lib/clang/*/",
+        "/usr/lib/llvm-*/lib/clang/*/",
+    ):
+        matches = sorted(_glob.glob(pattern), reverse=True)
+        for m in matches:
+            m = m.rstrip("/")
+            if os.path.isdir(m):
+                return ["-resource-dir", m]
+
+    # 4. Derive from pip-installed libclang package (cindex.py location)
+    try:
+        import clang as _clang_pkg
+        pkg_dir = os.path.dirname(_clang_pkg.__file__)
+        for rel in ("lib/clang", "clang"):
+            candidate = os.path.join(pkg_dir, rel)
+            if os.path.isdir(candidate):
+                versions = sorted(os.listdir(candidate), reverse=True)
+                for v in versions:
+                    rd = os.path.join(candidate, v)
+                    if os.path.isdir(rd):
+                        return ["-resource-dir", rd]
+    except Exception:
+        pass
+
+    return []
+
+
+def _linux_gcc_builtin_include_args() -> list[str]:
+    """
+    When no clang resource-dir is available, fall back to GCC's built-in
+    include directory (contains stddef.h, stdarg.h, stdbool.h, etc.).
+    Used on systems that build with GCC but have no clang binary installed.
+    """
+    for gcc in ("gcc", "gcc-13", "gcc-12", "gcc-11", "gcc-10"):
+        try:
+            result = subprocess.run(
+                [gcc, "-print-file-name=include"],
+                capture_output=True, text=True, timeout=10, check=False,
+            )
+            if result.returncode == 0:
+                p = result.stdout.strip()
+                # Sanity check: must be an actual directory under a gcc path
+                if p and os.path.isdir(p) and "gcc" in p:
+                    return ["-I", p]
         except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
             continue
     return []
@@ -648,8 +719,11 @@ def _default_clang_args(extra_args: Optional[list[str]]) -> list[str]:
         core = ["-std=c++17", "-x", "c++"]
     if sys.platform == "darwin":
         return _darwin_libclang_sysroot_args() + core
-    # Linux: inject resource-dir so built-in headers (stddef.h etc.) resolve
-    return _linux_clang_resource_dir_args() + core
+    # Linux: inject resource-dir (clang) or GCC built-in include as fallback
+    res = _linux_clang_resource_dir_args()
+    if not res:
+        res = _linux_gcc_builtin_include_args()
+    return res + core
 
 
 def parse_files(
@@ -678,10 +752,11 @@ def parse_files(
 
     default_args = _default_clang_args(extra_args)
 
-    # Precompute Linux resource-dir args to inject into compile_commands entries
-    _linux_res: list[str] = (
-        _linux_clang_resource_dir_args() if sys.platform != "darwin" else []
-    )
+    # Precompute Linux resource-dir (or GCC include) args for compile_commands entries
+    if sys.platform != "darwin":
+        _linux_res = _linux_clang_resource_dir_args() or _linux_gcc_builtin_include_args()
+    else:
+        _linux_res = []
 
     all_entries: dict[str, BlueprintEntry] = {}
 
