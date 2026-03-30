@@ -34,7 +34,7 @@ interface BlueprintEntry {
 
 // Messages sent from extension → webview
 type ExtensionMessage =
-  | { type: "loadEntries"; entries: BlueprintEntry[] }
+  | { type: "loadEntries"; entries: BlueprintEntry[]; totalCount?: number }
   | { type: "filter"; pattern: string }
   | { type: "highlight"; className: string }
   | { type: "layoutDirection"; direction: "TB" | "LR" | "BT" | "RL" };
@@ -189,10 +189,14 @@ function sendEntriesToWebview(
   const maxClasses = getConfig<number>("maxClassesInDiagram") ?? 100;
   const layoutDirection = getConfig<"TB" | "LR" | "BT" | "RL">("layoutDirection") ?? "TB";
 
-  // Send entries (truncate to maxClasses)
+  // For large codebases send all entries; webview applies its own view limit.
+  // For very large sets (>5000) send only up to maxClasses to avoid postMessage
+  // size limits — the webview filter/search handles focused navigation.
+  const sendEntries = entries.length > 5000 ? entries.slice(0, maxClasses) : entries;
   const msg: ExtensionMessage = {
     type: "loadEntries",
-    entries: entries.slice(0, maxClasses),
+    entries: sendEntries,
+    totalCount: entries.length,
   };
   panel.webview.postMessage(msg);
 

@@ -324,11 +324,13 @@
 const vscode = acquireVsCodeApi();
 
 let allEntries   = [];
+let totalCount   = 0;    // total classes in index (may exceed allEntries.length)
 let nodes        = {};   // className → {el, x, y, w, h, entry}
 let edges        = [];   // [{from, to, type}]
 let filterRegex  = null;
 let showPrivate  = false;
 let layoutDir    = 'TB';
+const VIEW_LIMIT = 150;  // max nodes to render without a filter
 
 // Pan/zoom
 let panX = 0, panY = 0, scale = 1;
@@ -346,6 +348,7 @@ window.addEventListener('message', ev => {
   switch (msg.type) {
     case 'loadEntries':
       allEntries = msg.entries || [];
+      totalCount = msg.totalCount || allEntries.length;
       renderAll();
       break;
     case 'filter':
@@ -581,14 +584,29 @@ function drawEdges(entries, classSet) {
 // ============================================================
 function getVisibleEntries() {
   if (!allEntries.length) return [];
-  let result = allEntries;
+
   if (filterRegex) {
     try {
       const re = new RegExp(filterRegex, 'i');
-      result = result.filter(e => re.test(e.className));
+      // Matched classes
+      const matched = allEntries.filter(e => re.test(e.className));
+      // Collect all neighbor class names (1-hop)
+      const neighborNames = new Set();
+      matched.forEach(e => {
+        (e.dependencies || []).forEach(d => neighborNames.add(d.target));
+        (e.baseClasses || []).forEach(b => neighborNames.add(b));
+      });
+      // Include matched + their neighbors that exist in allEntries
+      const matchedNames = new Set(matched.map(e => e.className));
+      const neighbors = allEntries.filter(
+        e => !matchedNames.has(e.className) && neighborNames.has(e.className)
+      );
+      return [...matched, ...neighbors];
     } catch (_) {}
   }
-  return result;
+
+  // No filter: show up to VIEW_LIMIT with a notice
+  return allEntries.slice(0, VIEW_LIMIT);
 }
 
 function applyFilter(pattern) {
@@ -871,7 +889,13 @@ function renderMinimap() {
 //  Toolbar buttons
 // ============================================================
 function updateInfoBar(count) {
-  document.getElementById('info-bar').textContent = `${count} class${count === 1 ? '' : 'es'}`;
+  const showing = `${count} class${count === 1 ? '' : 'es'}`;
+  const total = totalCount > allEntries.length
+    ? ` — type to search ${totalCount.toLocaleString()} total`
+    : totalCount > VIEW_LIMIT && !filterRegex
+      ? ` of ${totalCount.toLocaleString()} — type to search`
+      : '';
+  document.getElementById('info-bar').textContent = showing + total;
 }
 
 document.getElementById('btn-fit').addEventListener('click', fitView);
