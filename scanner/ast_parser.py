@@ -590,6 +590,56 @@ def _darwin_libclang_sysroot_args() -> list[str]:
     return args
 
 
+# Flags that GCC accepts but clang/libclang does not — strip them from
+# compile_commands.json args before handing to libclang.
+_GCC_ONLY_FLAG_RE = re.compile(
+    r"^-(?:"
+    r"Werror=stringop-overflow|"
+    r"Werror=stringop-truncation|"
+    r"Werror=implicit-fallthrough=\d*|"
+    r"fstack-protector-strong|"
+    r"fstack-clash-protection|"
+    r"fcf-protection(?:=\w+)?|"
+    r"fno-semantic-interposition|"
+    r"mno-omit-leaf-frame-pointer|"
+    r"Wno-error=deprecated-declarations|"
+    r"fvar-tracking-assignments"
+    r")$"
+)
+
+
+def _filter_gcc_flags(args: list[str]) -> list[str]:
+    """Remove GCC-specific flags that libclang (clang) does not recognise."""
+    return [a for a in args if not _GCC_ONLY_FLAG_RE.match(a)]
+
+
+def _linux_clang_resource_dir_args() -> list[str]:
+    """
+    On Linux, libclang needs -resource-dir to find built-in headers like
+    stddef.h, stdarg.h, etc.  Try common clang binary names until one works.
+    """
+    candidates = [
+        "clang",
+        "clang-18", "clang-17", "clang-16", "clang-15", "clang-14",
+    ]
+    for binary in candidates:
+        try:
+            result = subprocess.run(
+                [binary, "-print-resource-dir"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+            if result.returncode == 0:
+                r = result.stdout.strip()
+                if r:
+                    return ["-resource-dir", r]
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            continue
+    return []
+
+
 def _default_clang_args(extra_args: Optional[list[str]]) -> list[str]:
     """Compile flags for TUs that are not listed in compile_commands.json."""
     if extra_args:
@@ -598,7 +648,8 @@ def _default_clang_args(extra_args: Optional[list[str]]) -> list[str]:
         core = ["-std=c++17", "-x", "c++"]
     if sys.platform == "darwin":
         return _darwin_libclang_sysroot_args() + core
-    return core
+    # Linux: inject resource-dir so built-in headers (stddef.h etc.) resolve
+    return _linux_clang_resource_dir_args() + core
 
 
 def parse_files(
@@ -627,11 +678,21 @@ def parse_files(
 
     default_args = _default_clang_args(extra_args)
 
+    # Precompute Linux resource-dir args to inject into compile_commands entries
+    _linux_res: list[str] = (
+        _linux_clang_resource_dir_args() if sys.platform != "darwin" else []
+    )
+
     all_entries: dict[str, BlueprintEntry] = {}
 
     for src in source_files:
         src_abs = os.path.abspath(src)
-        args = compile_db.get(src_abs, default_args)
+        raw_args = compile_db.get(src_abs, default_args)
+        # Filter GCC-only flags and inject resource-dir on Linux
+        if raw_args is not default_args:
+            args = _linux_res + _filter_gcc_flags(raw_args)
+        else:
+            args = raw_args
 
         try:
             tu = index.parse(
