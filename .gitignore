@@ -1,0 +1,27 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.blueprint_cache.json
+.blueprint_tfidf.pkl
+
+# Generated outputs (runtime artifacts, not source)
+blueprint_index.json
+class_diagram.mmd
+sequence_diagram.mmd
+
+# VS Code extension
+vscode-extension/node_modules/
+vscode-extension/out/
+vscode-extension/.vscode-test/
+
+# Claude Code internal
+.claude/
+
+# Test artifacts
+.blueprint_tfidf_test.pkl
+
+# macOS
+.DS_Store

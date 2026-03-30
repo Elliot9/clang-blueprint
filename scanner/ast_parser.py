@@ -1,0 +1,714 @@
+"""
+ast_parser.py — Libclang-based AST scanner for clang-blueprint.
+
+Walks C/C++ translation units and extracts class/struct information matching
+the blueprint_index schema.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import subprocess
+import sys
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Optional
+
+try:
+    import clang.cindex as cindex
+    from clang.cindex import (
+        CursorKind,
+        TokenKind,
+        TranslationUnitLoadError,
+        conf,
+    )
+except ImportError as e:
+    raise ImportError(
+        "libclang Python bindings not found. Install with: pip install libclang"
+    ) from e
+
+
+
+# ---------------------------------------------------------------------------
+# Data structures
+# ---------------------------------------------------------------------------
+
+@dataclass
+class Dependency:
+    target: str
+    type: str  # composition | inheritance | association | dependency
+    cardinality: Optional[str] = None
+
+
+@dataclass
+class BlueprintEntry:
+    className: str
+    responsibility: str
+    dependencies: list[Dependency]
+    interfaces: list[str]
+    fileLocation: str
+    lineNumber: int
+    namespace: str
+    baseClasses: list[str]
+    templateParams: list[str]
+    attributes: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "className": self.className,
+            "responsibility": self.responsibility,
+            "dependencies": [
+                {
+                    "target": d.target,
+                    "type": d.type,
+                    **({"cardinality": d.cardinality} if d.cardinality else {}),
+                }
+                for d in self.dependencies
+            ],
+            "attributes": self.attributes,
+            "interfaces": self.interfaces,
+            "fileLocation": self.fileLocation,
+            "lineNumber": self.lineNumber,
+            "namespace": self.namespace,
+            "baseClasses": self.baseClasses,
+            "templateParams": self.templateParams,
+        }
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+_BUILTIN_TYPES = frozenset(
+    {
+        "void", "bool", "char", "short", "int", "long", "float", "double",
+        "unsigned", "signed", "size_t", "uint8_t", "uint16_t", "uint32_t",
+        "uint64_t", "int8_t", "int16_t", "int32_t", "int64_t", "ptrdiff_t",
+        "nullptr_t", "string", "wstring", "u16string", "u32string",
+        "auto", "decltype",
+    }
+)
+
+_STL_PREFIXES = (
+    "std::", "__gnu_cxx::", "__cxx11::", "boost::", "absl::",
+)
+
+
+def _is_trivial_type(name: str) -> bool:
+    """Return True if the type name is a built-in or STL type we can ignore."""
+    stripped = name.lstrip(":").split("<")[0].strip()
+    if stripped in _BUILTIN_TYPES:
+        return True
+    for prefix in _STL_PREFIXES:
+        if stripped.startswith(prefix):
+            return True
+    return False
+
+
+def _canonical_type_name(cursor: Any) -> str:
+    """Extract a clean type name from a cursor's type."""
+    t = cursor.type
+    # Unwrap pointers/refs/arrays
+    while t.kind in (
+        cindex.TypeKind.POINTER,
+        cindex.TypeKind.LVALUEREFERENCE,
+        cindex.TypeKind.RVALUEREFERENCE,
+        cindex.TypeKind.INCOMPLETEARRAY,
+        cindex.TypeKind.CONSTANTARRAY,
+        cindex.TypeKind.VARIABLEARRAY,
+    ):
+        t = t.get_pointee() if hasattr(t, "get_pointee") else t.element_type
+    name = t.spelling
+    # Strip cv-qualifiers
+    name = re.sub(r"\bconst\b|\bvolatile\b|\brestrict\b", "", name).strip()
+    # Strip leading "::"
+    name = name.lstrip(":")
+    return name
+
+
+def _get_namespace(cursor: Any) -> str:
+    """Walk parent cursors to build the fully-qualified namespace string."""
+    parts: list[str] = []
+    parent = cursor.semantic_parent
+    while parent and parent.kind not in (
+        CursorKind.TRANSLATION_UNIT,
+        CursorKind.INVALID_FILE,
+    ):
+        if parent.kind == CursorKind.NAMESPACE and parent.spelling:
+            parts.append(parent.spelling)
+        parent = parent.semantic_parent
+    parts.reverse()
+    return "::".join(parts)
+
+
+def _cursor_is_in_main_file(cursor: Any, tu_file: str) -> bool:
+    """Check whether a cursor lives in the file being parsed (not a header)."""
+    loc = cursor.location
+    if not loc.file:
+        return False
+    return os.path.abspath(loc.file.name) == os.path.abspath(tu_file)
+
+
+def _is_definition_in_project(path: str, project_root: str) -> bool:
+    """
+    True if `path` (a class/struct definition site) lies under `project_root`.
+
+    System and third-party headers live outside this tree and must not be
+    indexed as blueprint classes.
+    """
+    try:
+        abs_path = os.path.realpath(path)
+        root = os.path.realpath(project_root)
+    except OSError:
+        return False
+    if abs_path == root:
+        return True
+    root_prefix = root if root.endswith(os.sep) else root + os.sep
+    return abs_path.startswith(root_prefix)
+
+
+def _field_access_symbol(cursor: Any) -> str:
+    """Mermaid-style visibility prefix: + public, # protected, - private."""
+    acc = cursor.access_specifier
+    if acc == cindex.AccessSpecifier.PUBLIC:
+        return "+"
+    if acc == cindex.AccessSpecifier.PROTECTED:
+        return "#"
+    return "-"
+
+
+def _method_signature(cursor: Any) -> str:
+    """Build a readable method signature string."""
+    params = []
+    for arg in cursor.get_arguments():
+        params.append(f"{arg.type.spelling} {arg.spelling}".strip())
+    param_str = ", ".join(params)
+
+    if cursor.kind == CursorKind.CONSTRUCTOR:
+        # libclang reports a bogus 'void' result type for constructors.
+        name = cursor.spelling or ""
+        return f"{name}({param_str})"
+
+    if cursor.kind == CursorKind.DESTRUCTOR:
+        name = cursor.spelling
+        if not name or not name.startswith("~"):
+            parent = cursor.semantic_parent
+            pname = parent.spelling if parent and parent.spelling else ""
+            name = f"~{pname}" if pname else "~"
+        return f"{name}({param_str})"
+
+    ret = cursor.result_type.spelling if cursor.result_type.spelling else "void"
+    name = cursor.spelling
+    return f"{ret} {name}({param_str})"
+
+
+# ---------------------------------------------------------------------------
+# Core visitor
+# ---------------------------------------------------------------------------
+
+class ASTVisitor:
+    """Visits a single translation unit and builds BlueprintEntry objects."""
+
+    def __init__(self, source_file: str, project_root: str):
+        self.source_file = os.path.abspath(source_file)
+        self.project_root = os.path.abspath(project_root)
+        self.entries: dict[str, BlueprintEntry] = {}  # className → entry
+        self._current_class_stack: list[str] = []
+
+    def _rel_path(self, abs_path: str) -> str:
+        try:
+            return os.path.relpath(abs_path, self.project_root)
+        except ValueError:
+            return abs_path
+
+    def _class_key(self, cursor: Any) -> str:
+        """Unique key for a class cursor (qualified name)."""
+        parts = []
+        c = cursor
+        while c and c.kind not in (CursorKind.TRANSLATION_UNIT,):
+            if c.spelling:
+                parts.append(c.spelling)
+            c = c.semantic_parent
+        parts.reverse()
+        return "::".join(parts) if parts else cursor.spelling
+
+    def visit(self, cursor: Any, depth: int = 0) -> None:
+        """Recursively visit AST nodes."""
+        # Index class/struct defs only when the definition sits under
+        # project_root (_visit_class). The TU still includes system headers so
+        # member types and bases on project classes resolve.
+        if cursor.kind in (
+            CursorKind.CLASS_DECL,
+            CursorKind.STRUCT_DECL,
+            CursorKind.CLASS_TEMPLATE,
+            CursorKind.CLASS_TEMPLATE_PARTIAL_SPECIALIZATION,
+        ):
+            self._visit_class(cursor)
+            return  # _visit_class recurses into children itself
+
+        for child in cursor.get_children():
+            self.visit(child, depth + 1)
+
+    def _visit_class(self, cursor: Any) -> None:
+        """Process a class/struct cursor."""
+        # Skip forward declarations (no definition body)
+        if not cursor.is_definition():
+            # Still recurse in case of nested types inside headers we own
+            for child in cursor.get_children():
+                if child.kind in (
+                    CursorKind.CLASS_DECL,
+                    CursorKind.STRUCT_DECL,
+                    CursorKind.CLASS_TEMPLATE,
+                ):
+                    self._visit_class(child)
+            return
+
+        loc = cursor.location
+        if not loc.file:
+            return
+
+        # Only index classes defined in the scanned project tree (not STL/SDK).
+        file_abs = os.path.abspath(loc.file.name)
+        if not _is_definition_in_project(file_abs, self.project_root):
+            return
+
+        raw_name = cursor.spelling
+        if not raw_name:
+            # Anonymous struct/union — give it a synthetic name
+            raw_name = f"__anonymous_{loc.line}"
+
+        class_key = self._class_key(cursor)
+        namespace = _get_namespace(cursor)
+        template_params: list[str] = []
+        base_classes: list[str] = []
+        attributes: list[str] = []
+        interfaces: list[str] = []
+        dependencies: list[Dependency] = []
+        seen_deps: set[tuple[str, str]] = set()
+
+        def _add_dep(target: str, dep_type: str) -> None:
+            if not target or _is_trivial_type(target):
+                return
+            key = (target, dep_type)
+            if key not in seen_deps:
+                seen_deps.add(key)
+                # Don't add self-reference
+                if target != raw_name and target != class_key:
+                    dependencies.append(Dependency(target=target, type=dep_type))
+
+        # --- Template parameters ---
+        for child in cursor.get_children():
+            if child.kind in (
+                CursorKind.TEMPLATE_TYPE_PARAMETER,
+                CursorKind.TEMPLATE_NON_TYPE_PARAMETER,
+                CursorKind.TEMPLATE_TEMPLATE_PARAMETER,
+            ):
+                template_params.append(child.spelling)
+
+        # --- Base classes → inheritance dependencies ---
+        for child in cursor.get_children():
+            if child.kind == CursorKind.CXX_BASE_SPECIFIER:
+                base_name = child.type.spelling
+                base_name = re.sub(r"\bclass\b|\bstruct\b", "", base_name).strip()
+                base_classes.append(base_name)
+                _add_dep(base_name, "inheritance")
+
+        # --- Member fields → attributes + composition / aggregation dependencies ---
+        for child in cursor.get_children():
+            if child.kind == CursorKind.FIELD_DECL:
+                fname = child.spelling
+                if fname:
+                    ftype = re.sub(r"\s+", " ", (child.type.spelling or "")).strip()
+                    attributes.append(f"{_field_access_symbol(child)}{ftype} {fname}")
+
+                spelling = child.type.spelling  # e.g. "std::unique_ptr<NVMeDriver>"
+                # Smart pointer → extract inner type, classify by ownership semantics
+                unique_m = re.search(r"unique_ptr\s*<\s*([^,>\s]+)", spelling)
+                shared_m = re.search(r"(?:shared_ptr|weak_ptr)\s*<\s*([^,>\s]+)", spelling)
+                vector_m = re.search(r"(?:vector|list|deque|set|unordered_set)\s*<\s*([^,>\s]+)", spelling)
+                map_m    = re.search(r"(?:map|unordered_map|multimap)\s*<\s*[^,>]+,\s*([^,>\s]+)", spelling)
+                if unique_m:
+                    inner = re.sub(r"\bconst\b|\bvolatile\b|\*|&", "", unique_m.group(1)).strip()
+                    if inner and not _is_trivial_type(inner):
+                        _add_dep(inner, "composition")
+                elif shared_m:
+                    inner = re.sub(r"\bconst\b|\bvolatile\b|\*|&", "", shared_m.group(1)).strip()
+                    if inner and not _is_trivial_type(inner):
+                        _add_dep(inner, "aggregation")
+                elif vector_m or map_m:
+                    inner_raw = (vector_m or map_m).group(1)
+                    inner = re.sub(r"\bconst\b|\bvolatile\b|\*|&", "", inner_raw).strip()
+                    if inner and not _is_trivial_type(inner):
+                        dep = Dependency(target=inner, type="aggregation", cardinality="1..*")
+                        key = (inner, "aggregation")
+                        if key not in seen_deps and inner not in (raw_name, class_key):
+                            seen_deps.add(key)
+                            dependencies.append(dep)
+                else:
+                    type_name = _canonical_type_name(child)
+                    if type_name and not _is_trivial_type(type_name):
+                        raw_type = child.type
+                        if raw_type.kind in (
+                            cindex.TypeKind.POINTER,
+                            cindex.TypeKind.LVALUEREFERENCE,
+                            cindex.TypeKind.RVALUEREFERENCE,
+                        ):
+                            # Raw pointer/ref → aggregation (borrowing, no ownership)
+                            _add_dep(type_name, "aggregation")
+                        else:
+                            # Value member → composition (owns by value)
+                            _add_dep(type_name, "composition")
+
+        # --- Public methods → interfaces ---
+        for child in cursor.get_children():
+            if child.kind in (
+                CursorKind.CXX_METHOD,
+                CursorKind.CONSTRUCTOR,
+                CursorKind.DESTRUCTOR,
+                CursorKind.FUNCTION_TEMPLATE,
+            ):
+                if child.access_specifier == cindex.AccessSpecifier.PUBLIC:
+                    sig = _method_signature(child)
+                    interfaces.append(sig)
+
+                # Inspect method parameters for association dependencies
+                for param in child.get_arguments():
+                    type_name = _canonical_type_name(param)
+                    if type_name and not _is_trivial_type(type_name):
+                        _add_dep(type_name, "association")
+
+                # Inspect return type for association
+                if child.result_type and child.result_type.spelling:
+                    ret_name = child.result_type.spelling
+                    ret_name = re.sub(r"\bconst\b|\bvolatile\b|\*|&", "", ret_name).strip()
+                    if ret_name and not _is_trivial_type(ret_name):
+                        _add_dep(ret_name, "association")
+
+            # Nested class declarations
+            elif child.kind in (
+                CursorKind.CLASS_DECL,
+                CursorKind.STRUCT_DECL,
+                CursorKind.CLASS_TEMPLATE,
+            ):
+                self._visit_class(child)
+
+        # --- Local variable types in method bodies → dependency ---
+        for child in cursor.get_children():
+            if child.kind in (CursorKind.CXX_METHOD, CursorKind.CONSTRUCTOR, CursorKind.DESTRUCTOR):
+                self._scan_body_for_deps(child, seen_deps, dependencies, raw_name, class_key)
+
+        # Build responsibility from doxygen/comment if present, else synthesize
+        responsibility = self._extract_responsibility(cursor, raw_name, interfaces)
+
+        rel_file = self._rel_path(file_abs)
+        entry = BlueprintEntry(
+            className=raw_name,
+            responsibility=responsibility,
+            dependencies=dependencies,
+            interfaces=interfaces,
+            fileLocation=rel_file,
+            lineNumber=loc.line,
+            namespace=namespace,
+            baseClasses=base_classes,
+            templateParams=template_params,
+            attributes=attributes,
+        )
+        # Use qualified name as key to avoid collisions
+        self.entries[class_key] = entry
+
+    def _scan_body_for_deps(
+        self,
+        method_cursor: Any,
+        seen_deps: set[tuple[str, str]],
+        dependencies: list[Dependency],
+        raw_name: str,
+        class_key: str,
+    ) -> None:
+        """Scan method body for local variable declarations that introduce dependencies."""
+        for child in method_cursor.get_children():
+            if child.kind == CursorKind.VAR_DECL:
+                type_name = _canonical_type_name(child)
+                if type_name and not _is_trivial_type(type_name):
+                    key = (type_name, "dependency")
+                    if key not in seen_deps and type_name not in (raw_name, class_key):
+                        seen_deps.add(key)
+                        dependencies.append(Dependency(target=type_name, type="dependency"))
+            # Recurse into compound statements
+            self._scan_body_for_deps(child, seen_deps, dependencies, raw_name, class_key)
+
+    # Naming-convention → responsibility label (T-12)
+    _RESPONSIBILITY_PATTERNS: list[tuple[re.Pattern, str]] = [
+        (re.compile(r"Manager$"),    "Resource Lifecycle"),
+        (re.compile(r"Handler$"),    "Event Processing"),
+        (re.compile(r"Provider$"),   "Data Supply"),
+        (re.compile(r"Factory$"),    "Object Creation"),
+        (re.compile(r"Driver$"),     "Hardware Abstraction"),
+        (re.compile(r"Scheduler$"),  "Task Ordering"),
+        (re.compile(r"Controller$"), "Orchestration"),
+        (re.compile(r"Dispatcher$"), "Event Routing"),
+        (re.compile(r"Observer$"),   "Event Observation"),
+        (re.compile(r"Builder$"),    "Object Construction"),
+        (re.compile(r"Parser$"),     "Data Parsing"),
+        (re.compile(r"Serializer$"), "Data Serialization"),
+        (re.compile(r"Validator$"),  "Data Validation"),
+        (re.compile(r"Pool$"),       "Resource Pooling"),
+        (re.compile(r"Cache$|Cach"), "Data Caching"),
+        (re.compile(r"Queue$"),      "Work Queuing"),
+        (re.compile(r"Listener$"),   "Event Listening"),
+        (re.compile(r"Engine$"),     "Core Processing"),
+        (re.compile(r"Service$"),    "Service Provision"),
+        (re.compile(r"Repository$"), "Data Storage"),
+        (re.compile(r"Adapter$"),    "Interface Adaptation"),
+        (re.compile(r"Proxy$"),      "Access Proxying"),
+    ]
+
+    def _extract_responsibility(
+        self, cursor: Any, class_name: str, interfaces: list[str]
+    ) -> str:
+        """Attempt to extract a responsibility description from the raw comment."""
+        raw_comment = cursor.raw_comment
+        if raw_comment:
+            # Strip comment markers
+            cleaned = re.sub(r"/\*+|/\*|\*/|//+", "", raw_comment)
+            cleaned = re.sub(r"\s*\*\s*", " ", cleaned)
+            cleaned = re.sub(r"@\w+[^\n]*", "", cleaned)
+            cleaned = " ".join(cleaned.split())
+            if len(cleaned) > 10:
+                return cleaned[:200]
+
+        # Naming-convention regex mapping (T-12)
+        for pattern, label in self._RESPONSIBILITY_PATTERNS:
+            if pattern.search(class_name):
+                return label
+
+        # Synthesize from class name and public interface
+        iface_names = [sig.split("(")[0].split()[-1] for sig in interfaces[:3]]
+        if iface_names:
+            return f"Provides {', '.join(iface_names)} functionality"
+        return f"Manages {class_name} operations"
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def load_compile_commands(compile_commands_path: str) -> dict[str, list[str]]:
+    """
+    Parse compile_commands.json and return a mapping of
+    {absolute_file_path: [compiler_args]}.
+    """
+    path = Path(compile_commands_path)
+    if not path.exists():
+        return {}
+    with open(path) as f:
+        entries = json.load(f)
+
+    result: dict[str, list[str]] = {}
+    for entry in entries:
+        file_path = entry.get("file", "")
+        directory = entry.get("directory", "")
+        command = entry.get("command", "")
+        arguments = entry.get("arguments", [])
+
+        if not file_path:
+            continue
+        if not os.path.isabs(file_path):
+            file_path = os.path.join(directory, file_path)
+        file_path = os.path.abspath(file_path)
+
+        if arguments:
+            # arguments list — skip the compiler executable itself
+            args = arguments[1:] if arguments else []
+        elif command:
+            import shlex
+            args = shlex.split(command)[1:]
+        else:
+            args = []
+
+        # Filter out source file and output flags that confuse libclang
+        filtered: list[str] = []
+        skip_next = False
+        for arg in args:
+            if skip_next:
+                skip_next = False
+                continue
+            if arg in ("-o", "-MF", "-MT", "-MQ"):
+                skip_next = True
+                continue
+            if arg == file_path or arg.endswith(".o"):
+                continue
+            filtered.append(arg)
+
+        result[file_path] = filtered
+
+    return result
+
+
+def _darwin_libclang_sysroot_args() -> list[str]:
+    """
+    On macOS, libclang needs the same SDK + Clang resource directory as the
+    Xcode/CLT driver.  Only -isysroot is not enough: SDK headers pull in
+    <stdarg.h>, which lives under the compiler's -resource-dir, not in the SDK.
+    """
+    args: list[str] = []
+    try:
+        sdk = subprocess.run(
+            ["xcrun", "--sdk", "macosx", "--show-sdk-path"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        if sdk.returncode == 0:
+            p = sdk.stdout.strip()
+            if p:
+                args.extend(["-isysroot", p])
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        pass
+
+    try:
+        rd = subprocess.run(
+            ["xcrun", "--sdk", "macosx", "--run", "clang", "-print-resource-dir"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        if rd.returncode == 0:
+            r = rd.stdout.strip()
+            if r:
+                args.extend(["-resource-dir", r])
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        pass
+
+    # libc++ is the default for Apple clang; makes <string> resolve consistently.
+    if args:
+        args.append("-stdlib=libc++")
+
+    return args
+
+
+def _default_clang_args(extra_args: Optional[list[str]]) -> list[str]:
+    """Compile flags for TUs that are not listed in compile_commands.json."""
+    if extra_args:
+        core = list(extra_args)
+    else:
+        core = ["-std=c++17", "-x", "c++"]
+    if sys.platform == "darwin":
+        return _darwin_libclang_sysroot_args() + core
+    return core
+
+
+def parse_files(
+    source_files: list[str],
+    project_root: str,
+    compile_commands_path: Optional[str] = None,
+    extra_args: Optional[list[str]] = None,
+) -> list[dict[str, Any]]:
+    """
+    Parse a list of C/C++ source files with libclang and return a list of
+    blueprint_index schema dictionaries.
+
+    Args:
+        source_files: Absolute or relative paths to .cpp/.h/.hpp/.c files.
+        project_root: Root directory of the project (for relative fileLocation).
+        compile_commands_path: Path to compile_commands.json (optional).
+        extra_args: Additional compiler arguments to pass to libclang.
+
+    Returns:
+        List of dicts matching the blueprint_index entry schema.
+    """
+    index = cindex.Index.create()
+    compile_db: dict[str, list[str]] = {}
+    if compile_commands_path:
+        compile_db = load_compile_commands(compile_commands_path)
+
+    default_args = _default_clang_args(extra_args)
+
+    all_entries: dict[str, BlueprintEntry] = {}
+
+    for src in source_files:
+        src_abs = os.path.abspath(src)
+        args = compile_db.get(src_abs, default_args)
+
+        try:
+            tu = index.parse(
+                src_abs,
+                args=args,
+                options=(
+                    cindex.TranslationUnit.PARSE_DETAILED_PROCESSING_RECORD
+                    | cindex.TranslationUnit.PARSE_SKIP_FUNCTION_BODIES
+                    # Don't skip function bodies for dependency detection
+                ),
+            )
+        except TranslationUnitLoadError as e:
+            print(f"[ast_parser] WARNING: Failed to parse {src}: {e}", file=sys.stderr)
+            continue
+
+        # Report diagnostics at warning level
+        _sev_names = {
+            cindex.Diagnostic.Warning: "WARNING",
+            cindex.Diagnostic.Error: "ERROR",
+            cindex.Diagnostic.Fatal: "FATAL",
+        }
+        for diag in tu.diagnostics:
+            if diag.severity >= cindex.Diagnostic.Warning:
+                sev = _sev_names.get(diag.severity, "NOTE")
+                print(
+                    f"[ast_parser] {sev}: {diag.spelling} "
+                    f"({diag.location.file}:{diag.location.line})",
+                    file=sys.stderr,
+                )
+
+        visitor = ASTVisitor(src_abs, project_root)
+        visitor.visit(tu.cursor)
+        all_entries.update(visitor.entries)
+
+    return [entry.to_dict() for entry in all_entries.values()]
+
+
+def scan_directory(
+    project_root: str,
+    compile_commands_path: Optional[str] = None,
+    extensions: tuple[str, ...] = (".cpp", ".cxx", ".cc", ".c", ".h", ".hpp", ".hxx"),
+    exclude_patterns: tuple[str, ...] = ("third_party", "vendor", "extern", "build", ".git"),
+) -> list[dict[str, Any]]:
+    """
+    Recursively scan an entire project directory for C/C++ source files
+    and parse them all.
+
+    Args:
+        project_root: Root directory to scan.
+        compile_commands_path: Optional path to compile_commands.json.
+        extensions: File extensions to include.
+        exclude_patterns: Directory name fragments to skip.
+
+    Returns:
+        List of blueprint_index entry dicts.
+    """
+    root = Path(project_root)
+    source_files: list[str] = []
+
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+        if path.suffix.lower() not in extensions:
+            continue
+        # Exclude build/vendor directories
+        parts = path.parts
+        if any(excl in parts for excl in exclude_patterns):
+            continue
+        source_files.append(str(path))
+
+    print(
+        f"[ast_parser] Found {len(source_files)} source files under {project_root}",
+        file=sys.stderr,
+    )
+
+    return parse_files(
+        source_files,
+        project_root=project_root,
+        compile_commands_path=compile_commands_path,
+    )

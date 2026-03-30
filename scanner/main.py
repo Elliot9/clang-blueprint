@@ -1,0 +1,299 @@
+"""
+main.py — CLI entry point for clang-blueprint scanner.
+
+Commands:
+  scan   --project-root <dir> [--output <file>] [--incremental]
+         [--compile-commands <path>]
+  diagram --type class|sequence [--filter <pattern>]
+          [--namespace <prefix>] [--input <blueprint_index.json>]
+          [--output-dir <dir>] [--gdb-backtrace <file>]
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import time
+from pathlib import Path
+from typing import Any, Optional
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _load_json(path: str) -> Any:
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _save_json(path: str, data: Any) -> None:
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+    print(f"[blueprint] Wrote {len(data)} entries to {path}")
+
+
+# ---------------------------------------------------------------------------
+# Subcommand handlers
+# ---------------------------------------------------------------------------
+
+def cmd_scan(args: argparse.Namespace) -> int:
+    """Handle the `scan` subcommand."""
+    project_root = os.path.abspath(args.project_root)
+    if not os.path.isdir(project_root):
+        print(f"ERROR: project-root does not exist: {project_root}", file=sys.stderr)
+        return 1
+
+    output_path = args.output or os.path.join(project_root, "blueprint_index.json")
+    compile_commands = args.compile_commands
+
+    # Auto-discover compile_commands.json if not provided
+    if not compile_commands:
+        candidates = [
+            os.path.join(project_root, "compile_commands.json"),
+            os.path.join(project_root, "build", "compile_commands.json"),
+        ]
+        for c in candidates:
+            if os.path.isfile(c):
+                compile_commands = c
+                print(f"[blueprint] Auto-detected compile_commands: {compile_commands}")
+                break
+
+    t0 = time.perf_counter()
+
+    if args.incremental:
+        from scanner.incremental import incremental_scan
+        cache_path = args.cache or None
+        print(f"[blueprint] Starting incremental scan of {project_root} ...")
+        entries = incremental_scan(
+            project_root=project_root,
+            compile_commands_path=compile_commands,
+            cache_path=cache_path,
+        )
+    else:
+        from scanner.ast_parser import scan_directory
+        print(f"[blueprint] Starting full scan of {project_root} ...")
+        entries = scan_directory(
+            project_root=project_root,
+            compile_commands_path=compile_commands,
+        )
+
+    elapsed = time.perf_counter() - t0
+    print(f"[blueprint] Scan complete in {elapsed:.2f}s — {len(entries)} classes indexed.")
+
+    if elapsed > 60:
+        print(
+            f"WARNING: Full scan took {elapsed:.1f}s (target: <60s). "
+            "Consider using --incremental for subsequent runs.",
+            file=sys.stderr,
+        )
+
+    _save_json(output_path, entries)
+    return 0
+
+
+def cmd_diagram(args: argparse.Namespace) -> int:
+    """Handle the `diagram` subcommand."""
+    from scanner.mermaid_generator import (
+        generate_class_diagram,
+        generate_sequence_diagram,
+        parse_gdb_backtrace,
+        write_diagram,
+    )
+
+    input_path = args.input or "blueprint_index.json"
+    if not os.path.isfile(input_path):
+        print(f"ERROR: Blueprint index not found: {input_path}", file=sys.stderr)
+        print("Run `blueprint scan` first to generate the index.", file=sys.stderr)
+        return 1
+
+    entries: list[dict] = _load_json(input_path)
+    diagram_type = args.type
+    filter_pattern: Optional[str] = args.filter
+    namespace_filter: Optional[str] = args.namespace
+    output_dir = args.output_dir or os.path.dirname(os.path.abspath(input_path))
+
+    if diagram_type == "class":
+        diagram = generate_class_diagram(
+            entries,
+            filter_pattern=filter_pattern,
+            namespace_filter=namespace_filter,
+            title="C++ Blueprint — Class Diagram",
+        )
+        out_path = os.path.join(output_dir, "class_diagram.mmd")
+        write_diagram(diagram, out_path)
+        print(diagram)
+
+    elif diagram_type == "sequence":
+        call_graph: list[dict] = []
+
+        if args.gdb_backtrace:
+            if not os.path.isfile(args.gdb_backtrace):
+                print(f"ERROR: GDB backtrace file not found: {args.gdb_backtrace}", file=sys.stderr)
+                return 1
+            with open(args.gdb_backtrace, "r") as f:
+                backtrace_text = f.read()
+            call_graph = parse_gdb_backtrace(backtrace_text)
+            print(f"[blueprint] Parsed {len(call_graph)} call edges from GDB backtrace.")
+
+        elif args.call_graph:
+            if not os.path.isfile(args.call_graph):
+                print(f"ERROR: Call graph file not found: {args.call_graph}", file=sys.stderr)
+                return 1
+            call_graph = _load_json(args.call_graph)
+
+        diagram = generate_sequence_diagram(
+            call_graph,
+            filter_pattern=filter_pattern,
+            namespace_filter=namespace_filter,
+            title="C++ Blueprint — Sequence Diagram",
+        )
+        out_path = os.path.join(output_dir, "sequence_diagram.mmd")
+        write_diagram(diagram, out_path)
+        print(diagram)
+
+    else:
+        print(f"ERROR: Unknown diagram type: {diagram_type!r}. Use 'class' or 'sequence'.",
+              file=sys.stderr)
+        return 1
+
+    return 0
+
+
+def cmd_cache_stats(args: argparse.Namespace) -> int:
+    """Show incremental cache statistics."""
+    from scanner.incremental import get_cache_stats, DEFAULT_CACHE_NAME
+    cache_path = args.cache or os.path.join(
+        os.path.abspath(args.project_root or "."), DEFAULT_CACHE_NAME
+    )
+    stats = get_cache_stats(cache_path)
+    print(json.dumps(stats, indent=2))
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Argument parser
+# ---------------------------------------------------------------------------
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="blueprint",
+        description="clang-blueprint: C++ codebase scanner and diagram generator",
+    )
+    parser.add_argument(
+        "--version", action="version", version="clang-blueprint 0.1.0"
+    )
+
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    # --- scan ---
+    scan_parser = subparsers.add_parser(
+        "scan",
+        help="Scan C/C++ source files and produce blueprint_index.json",
+    )
+    scan_parser.add_argument(
+        "--project-root", "-p",
+        default=".",
+        help="Root directory of the C/C++ project (default: current directory)",
+    )
+    scan_parser.add_argument(
+        "--output", "-o",
+        help="Output path for blueprint_index.json (default: <project-root>/blueprint_index.json)",
+    )
+    scan_parser.add_argument(
+        "--incremental", "-i",
+        action="store_true",
+        help="Use hash-based incremental scan (only re-parse changed files)",
+    )
+    scan_parser.add_argument(
+        "--compile-commands", "-c",
+        help="Path to compile_commands.json (auto-detected if omitted)",
+    )
+    scan_parser.add_argument(
+        "--cache",
+        help="Path to incremental cache file (default: <project-root>/.blueprint_cache.json)",
+    )
+
+    # --- diagram ---
+    diag_parser = subparsers.add_parser(
+        "diagram",
+        help="Generate Mermaid diagrams from blueprint_index.json",
+    )
+    diag_parser.add_argument(
+        "--type", "-t",
+        choices=["class", "sequence"],
+        required=True,
+        help="Diagram type: 'class' or 'sequence'",
+    )
+    diag_parser.add_argument(
+        "--filter", "-f",
+        help="Regex pattern to filter by class name",
+    )
+    diag_parser.add_argument(
+        "--namespace", "-n",
+        help="Namespace prefix to restrict diagram (e.g. 'core' or 'io::net')",
+    )
+    diag_parser.add_argument(
+        "--input",
+        help="Path to blueprint_index.json (default: ./blueprint_index.json)",
+    )
+    diag_parser.add_argument(
+        "--output-dir",
+        help="Directory to write .mmd files (default: same directory as input)",
+    )
+    diag_parser.add_argument(
+        "--gdb-backtrace",
+        help="Path to a GDB backtrace text file (for sequence diagrams)",
+    )
+    diag_parser.add_argument(
+        "--call-graph",
+        help="Path to a call_graph.json file (for sequence diagrams)",
+    )
+
+    # --- cache-stats ---
+    stats_parser = subparsers.add_parser(
+        "cache-stats",
+        help="Show incremental scan cache statistics",
+    )
+    stats_parser.add_argument("--project-root", "-p", default=".")
+    stats_parser.add_argument("--cache", help="Path to cache file")
+
+    return parser
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+def main(argv: Optional[list[str]] = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    dispatch = {
+        "scan": cmd_scan,
+        "diagram": cmd_diagram,
+        "cache-stats": cmd_cache_stats,
+    }
+
+    handler = dispatch.get(args.command)
+    if handler is None:
+        parser.print_help()
+        return 1
+
+    try:
+        return handler(args)
+    except KeyboardInterrupt:
+        print("\n[blueprint] Interrupted.", file=sys.stderr)
+        return 130
+    except Exception as exc:
+        print(f"[blueprint] FATAL: {exc}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

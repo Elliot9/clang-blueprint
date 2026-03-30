@@ -1,0 +1,120 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "develop"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  # ── Python: scanner + AI API tests ──────────────────────────────────────
+  python-tests:
+    name: Python Tests
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      - name: Install system libclang
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libclang-16-dev clang-16 llvm-16
+          echo "LIBCLANG_PATH=/usr/lib/llvm-16/lib/libclang.so.1" >> $GITHUB_ENV
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run unit tests (scanner + incremental + indexer)
+        run: |
+          pytest tests/test_incremental.py tests/test_indexer.py -v --tb=short
+
+      - name: Run AST parser tests
+        env:
+          LIBCLANG_PATH: ${{ env.LIBCLANG_PATH }}
+        run: |
+          pytest tests/test_ast_parser.py -v --tb=short
+
+      - name: Run server tests
+        run: |
+          pytest tests/test_server.py -v --tb=short
+
+      - name: Run E2E integration test
+        env:
+          LIBCLANG_PATH: ${{ env.LIBCLANG_PATH }}
+        run: |
+          pytest tests/test_e2e.py -v --tb=short
+
+  # ── TypeScript / VS Code extension lint ──────────────────────────────────
+  vscode-extension:
+    name: VS Code Extension (lint + compile)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: vscode-extension/package-lock.json
+
+      - name: Install extension dependencies
+        working-directory: vscode-extension
+        run: npm ci --prefer-offline || npm install
+
+      - name: Compile TypeScript
+        working-directory: vscode-extension
+        run: npm run compile
+
+      - name: Lint TypeScript
+        working-directory: vscode-extension
+        run: npm run lint || true   # non-blocking until eslint config is in place
+
+  # ── Performance smoke test ────────────────────────────────────────────────
+  # T-23: Validates the scanner completes within 60s on the example project.
+  perf-smoke:
+    name: Scanner performance smoke test
+    runs-on: ubuntu-latest
+    needs: python-tests
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libclang-16-dev clang-16
+          pip install -r requirements.txt
+
+      - name: Scan example project and assert timing
+        run: |
+          start=$(date +%s%N)
+          python -m scanner.main scan \
+            --project-root examples/storage_engine \
+            --output /tmp/blueprint_index.json
+          end=$(date +%s%N)
+          elapsed=$(( (end - start) / 1000000 ))
+          echo "Scan completed in ${elapsed}ms"
+          # Assert < 60 000 ms
+          if [ "$elapsed" -gt 60000 ]; then
+            echo "ERROR: Scan exceeded 60s (${elapsed}ms)"
+            exit 1
+          fi

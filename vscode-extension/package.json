@@ -1,0 +1,169 @@
+{
+  "name": "clang-blueprint",
+  "displayName": "Clang Blueprint",
+  "description": "Interactive C++ class diagram and code navigation powered by libclang",
+  "version": "0.1.0",
+  "publisher": "clang-blueprint",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Visualization",
+    "Programming Languages",
+    "Other"
+  ],
+  "keywords": [
+    "C++",
+    "clang",
+    "diagram",
+    "architecture",
+    "class diagram",
+    "react flow"
+  ],
+  "activationEvents": [
+    "onLanguage:cpp",
+    "onLanguage:c",
+    "workspaceContains:blueprint_index.json",
+    "workspaceContains:compile_commands.json"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "clangBlueprint.showDiagram",
+        "title": "Blueprint: Show Class Diagram",
+        "icon": "$(type-hierarchy)"
+      },
+      {
+        "command": "clangBlueprint.jumpToDefinition",
+        "title": "Blueprint: Jump to Definition",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "clangBlueprint.rebuildIndex",
+        "title": "Blueprint: Rebuild Index",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "clangBlueprint.filterDiagram",
+        "title": "Blueprint: Filter Diagram by Pattern",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "clangBlueprint.openSettings",
+        "title": "Blueprint: Open Settings",
+        "icon": "$(settings-gear)"
+      },
+      {
+        "command": "clangBlueprint.highlightUpstream",
+        "title": "Blueprint: Highlight Upstream Callers",
+        "icon": "$(arrow-up)"
+      },
+      {
+        "command": "clangBlueprint.highlightDownstream",
+        "title": "Blueprint: Highlight Downstream Dependencies",
+        "icon": "$(arrow-down)"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "clangBlueprint.showDiagram",
+          "when": "resourceLangId == cpp || resourceLangId == c",
+          "group": "navigation"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "clangBlueprint.showDiagram",
+          "when": "resourceLangId == cpp || resourceLangId == c",
+          "group": "blueprint"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "clangBlueprint.jumpToDefinition",
+          "when": "resourceLangId == cpp || resourceLangId == c",
+          "group": "blueprint"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Clang Blueprint",
+      "properties": {
+        "clangBlueprint.blueprintIndexPath": {
+          "type": "string",
+          "default": "blueprint_index.json",
+          "description": "Path to blueprint_index.json relative to the workspace root"
+        },
+        "clangBlueprint.aiServerUrl": {
+          "type": "string",
+          "default": "http://localhost:8000",
+          "description": "URL of the Blueprint AI query server"
+        },
+        "clangBlueprint.autoReloadOnChange": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically reload the diagram when blueprint_index.json changes"
+        },
+        "clangBlueprint.maxClassesInDiagram": {
+          "type": "number",
+          "default": 100,
+          "minimum": 1,
+          "maximum": 500,
+          "description": "Maximum number of classes to render simultaneously"
+        },
+        "clangBlueprint.layoutDirection": {
+          "type": "string",
+          "enum": [
+            "TB",
+            "LR",
+            "BT",
+            "RL"
+          ],
+          "default": "TB",
+          "description": "Default graph layout direction (TB=top-bottom, LR=left-right)"
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "clangBlueprint",
+          "title": "Clang Blueprint",
+          "icon": "$(type-hierarchy)"
+        }
+      ]
+    },
+    "views": {
+      "clangBlueprint": [
+        {
+          "type": "webview",
+          "id": "clangBlueprint.diagramView",
+          "name": "Class Diagram"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile",
+    "test": "node ./out/test/runTest.js",
+    "lint": "eslint src --ext ts",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/glob": "^9.0.0",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "@vscode/test-electron": "^2.3.0",
+    "eslint": "^8.0.0",
+    "typescript": "^5.3.0",
+    "vsce": "^2.15.0"
+  }
+}

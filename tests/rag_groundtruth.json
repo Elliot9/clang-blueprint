@@ -1,0 +1,122 @@
+[
+  {
+    "id": "GT-01",
+    "query": "負責管理磁碟讀寫 I/O 的類別",
+    "expected_top1": "DiskManager",
+    "expected_in_top3": ["DiskManager", "NVMeController"]
+  },
+  {
+    "id": "GT-02",
+    "query": "處理 NVMe 提交佇列與完成佇列的元件",
+    "expected_top1": "NVMeController",
+    "expected_in_top3": ["NVMeController", "DiskManager"]
+  },
+  {
+    "id": "GT-03",
+    "query": "記憶體緩衝區的分配與釋放",
+    "expected_top1": "BufferPool",
+    "expected_in_top3": ["BufferPool"]
+  },
+  {
+    "id": "GT-04",
+    "query": "提供 key-value 快取存取介面",
+    "expected_top1": "CacheManager",
+    "expected_in_top3": ["CacheManager"]
+  },
+  {
+    "id": "GT-05",
+    "query": "處理硬體驅動程式初始化",
+    "expected_top1": "NVMeDriver",
+    "expected_in_top3": ["NVMeDriver"]
+  },
+  {
+    "id": "GT-06",
+    "query": "訂閱並處理事件通知",
+    "expected_top1": "EventHandler",
+    "expected_in_top3": ["EventHandler"]
+  },
+  {
+    "id": "GT-07",
+    "query": "負責產生物件實例的工廠類別",
+    "expected_top1": "RequestFactory",
+    "expected_in_top3": ["RequestFactory"]
+  },
+  {
+    "id": "GT-08",
+    "query": "任務排程與優先佇列管理",
+    "expected_top1": "TaskScheduler",
+    "expected_in_top3": ["TaskScheduler"]
+  },
+  {
+    "id": "GT-09",
+    "query": "序列化與反序列化資料結構",
+    "expected_top1": "DataSerializer",
+    "expected_in_top3": ["DataSerializer"]
+  },
+  {
+    "id": "GT-10",
+    "query": "管理元件生命週期與資源釋放",
+    "expected_top1": "ResourceManager",
+    "expected_in_top3": ["ResourceManager", "DiskManager"]
+  },
+  {
+    "id": "GT-11",
+    "query": "read block from disk at given logical block address",
+    "expected_top1": "DiskManager",
+    "expected_in_top3": ["DiskManager"]
+  },
+  {
+    "id": "GT-12",
+    "query": "submit I/O request to NVMe device",
+    "expected_top1": "NVMeController",
+    "expected_in_top3": ["NVMeController", "DiskManager"]
+  },
+  {
+    "id": "GT-13",
+    "query": "allocate memory buffer for DMA transfer",
+    "expected_top1": "BufferPool",
+    "expected_in_top3": ["BufferPool"]
+  },
+  {
+    "id": "GT-14",
+    "query": "look up cached value by key",
+    "expected_top1": "CacheManager",
+    "expected_in_top3": ["CacheManager"]
+  },
+  {
+    "id": "GT-15",
+    "query": "initialize NVMe hardware driver",
+    "expected_top1": "NVMeDriver",
+    "expected_in_top3": ["NVMeDriver", "NVMeController"]
+  },
+  {
+    "id": "GT-16",
+    "query": "register event listener callback",
+    "expected_top1": "EventHandler",
+    "expected_in_top3": ["EventHandler"]
+  },
+  {
+    "id": "GT-17",
+    "query": "create new instance of request object",
+    "expected_top1": "RequestFactory",
+    "expected_in_top3": ["RequestFactory"]
+  },
+  {
+    "id": "GT-18",
+    "query": "schedule background task with priority",
+    "expected_top1": "TaskScheduler",
+    "expected_in_top3": ["TaskScheduler"]
+  },
+  {
+    "id": "GT-19",
+    "query": "convert object to binary format",
+    "expected_top1": "DataSerializer",
+    "expected_in_top3": ["DataSerializer"]
+  },
+  {
+    "id": "GT-20",
+    "query": "manage lifecycle of storage resources",
+    "expected_top1": "ResourceManager",
+    "expected_in_top3": ["ResourceManager", "DiskManager"]
+  }
+]

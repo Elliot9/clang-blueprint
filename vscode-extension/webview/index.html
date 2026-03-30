@@ -1,0 +1,918 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Clang Blueprint</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #1e1e1e;
+      color: #d4d4d4;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      overflow: hidden;
+    }
+
+    /* ── Toolbar ── */
+    #toolbar {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      height: 40px;
+      background: #252526;
+      border-bottom: 1px solid #3e3e3e;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 12px;
+      z-index: 100;
+    }
+    #toolbar input {
+      background: #3c3c3c;
+      border: 1px solid #555;
+      color: #d4d4d4;
+      padding: 3px 8px;
+      border-radius: 3px;
+      font-size: 12px;
+      width: 180px;
+    }
+    #toolbar input:focus { outline: none; border-color: #007acc; }
+    #toolbar button {
+      background: #3c3c3c;
+      border: 1px solid #555;
+      color: #d4d4d4;
+      padding: 3px 8px;
+      border-radius: 3px;
+      font-size: 11px;
+      cursor: pointer;
+    }
+    #toolbar button:hover { background: #505050; }
+    #toolbar button.active { background: #007acc; border-color: #007acc; color: #fff; }
+    #toolbar label {
+      font-size: 11px;
+      color: #aaa;
+      margin-left: 4px;
+    }
+    #info-bar {
+      margin-left: auto;
+      font-size: 11px;
+      color: #888;
+    }
+
+    /* ── Canvas ── */
+    #canvas-container {
+      position: absolute;
+      top: 40px; left: 0; right: 0; bottom: 0;
+      overflow: hidden;
+      cursor: grab;
+    }
+    #canvas-container.dragging { cursor: grabbing; }
+
+    #canvas {
+      position: absolute;
+      transform-origin: 0 0;
+    }
+
+    /* ── Nodes ── */
+    .class-node {
+      position: absolute;
+      background: #252526;
+      border: 1.5px solid #3e3e3e;
+      border-radius: 4px;
+      min-width: 160px;
+      max-width: 260px;
+      font-size: 11px;
+      cursor: pointer;
+      user-select: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .class-node:hover { border-color: #007acc; }
+    .class-node.selected { border-color: #007acc; box-shadow: 0 0 0 2px rgba(0,122,204,0.3); }
+    .class-node.highlight-up   { border-color: #e8a000; box-shadow: 0 0 0 2px rgba(232,160,0,0.3); }
+    .class-node.highlight-down { border-color: #4ec9b0; box-shadow: 0 0 0 2px rgba(78,201,176,0.3); }
+    .class-node.dimmed { opacity: 0.25; }
+
+    .node-header {
+      background: #2d2d2d;
+      padding: 5px 8px;
+      border-bottom: 1px solid #3e3e3e;
+      border-radius: 3px 3px 0 0;
+    }
+    .node-class-name {
+      font-weight: bold;
+      font-size: 12px;
+      color: #4ec9b0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .node-namespace {
+      font-size: 10px;
+      color: #888;
+      margin-top: 1px;
+    }
+    .node-template {
+      font-size: 10px;
+      color: #c586c0;
+    }
+
+    .node-responsibility {
+      padding: 3px 8px;
+      font-size: 10px;
+      color: #9cdcfe;
+      border-bottom: 1px solid #2d2d2d;
+      font-style: italic;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .node-methods {
+      padding: 4px 8px;
+      max-height: 80px;
+      overflow: hidden;
+    }
+    .node-method {
+      font-size: 10px;
+      color: #dcdcaa;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.5;
+    }
+    .node-method::before { content: "+ "; color: #6a9955; }
+
+    .node-attributes {
+      padding: 4px 8px 0;
+      max-height: 72px;
+      overflow: hidden;
+      border-bottom: 1px solid #2d2d2d;
+    }
+    .node-attribute {
+      font-size: 10px;
+      color: #ce9178;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.45;
+    }
+
+    /* ── Edges (SVG) ── */
+    #edges-svg {
+      position: absolute;
+      top: 0; left: 0;
+      pointer-events: none;
+      overflow: visible;
+    }
+
+    .edge-composition   { stroke: #4ec9b0; }
+    .edge-aggregation   { stroke: #9cdcfe; }
+    .edge-inheritance   { stroke: #c586c0; }
+    .edge-association   { stroke: #888;    }
+    .edge-dependency    { stroke: #888; stroke-dasharray: 5,3; }
+
+    .edge-line {
+      stroke-width: 1.5;
+      fill: none;
+      marker-end: url(#arrow);
+    }
+    .edge-inheritance { marker-end: url(#arrow-inherit); }
+    .edge-composition { marker-end: url(#arrow-comp); }
+
+    /* ── Minimap ── */
+    #minimap {
+      position: fixed;
+      bottom: 16px; right: 16px;
+      width: 160px; height: 110px;
+      background: rgba(37,37,38,0.9);
+      border: 1px solid #3e3e3e;
+      border-radius: 4px;
+      overflow: hidden;
+      z-index: 50;
+    }
+    #minimap-canvas {
+      width: 100%; height: 100%;
+      transform-origin: 0 0;
+    }
+    #minimap-viewport {
+      position: absolute;
+      border: 1px solid #007acc;
+      background: rgba(0,122,204,0.1);
+      pointer-events: none;
+    }
+
+    /* ── Selected info panel ── */
+    #detail-panel {
+      position: fixed;
+      bottom: 16px; left: 16px;
+      width: 240px;
+      background: #252526;
+      border: 1px solid #3e3e3e;
+      border-radius: 4px;
+      padding: 10px 12px;
+      font-size: 11px;
+      z-index: 50;
+      display: none;
+    }
+    #detail-panel.visible { display: block; }
+    .detail-title { font-weight: bold; color: #4ec9b0; margin-bottom: 4px; font-size: 13px; }
+    .detail-row { margin: 2px 0; color: #888; }
+    .detail-row span { color: #d4d4d4; }
+    #detail-jump { margin-top: 8px; }
+
+    /* ── Context menu (T-35) ── */
+    #ctx-menu {
+      position: fixed;
+      background: #2d2d2d;
+      border: 1px solid #555;
+      border-radius: 4px;
+      padding: 4px 0;
+      min-width: 200px;
+      z-index: 200;
+      display: none;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    }
+    #ctx-menu.visible { display: block; }
+    .ctx-item {
+      padding: 6px 14px;
+      font-size: 12px;
+      cursor: pointer;
+      color: #d4d4d4;
+    }
+    .ctx-item:hover { background: #094771; }
+    .ctx-item.sep { border-top: 1px solid #444; margin-top: 4px; padding-top: 10px; }
+
+    /* ── Empty state ── */
+    #empty-state {
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+      color: #555;
+    }
+    #empty-state h2 { font-size: 18px; margin-bottom: 8px; }
+    #empty-state p  { font-size: 13px; }
+  </style>
+</head>
+<body>
+
+<!-- Toolbar -->
+<div id="toolbar">
+  <button id="btn-fit"   title="Fit all nodes in view">Fit</button>
+  <button id="btn-reset" title="Reset zoom to 100%">100%</button>
+  <input  id="filter-input" type="text" placeholder="Filter classes…" title="Regex filter by class name" />
+  <button id="btn-toggle-private" title="Toggle private members">Hide Private</button>
+  <button id="btn-layout-tb"  class="active" title="Top-to-bottom layout">TB</button>
+  <button id="btn-layout-lr"  title="Left-to-right layout">LR</button>
+  <div id="info-bar">0 classes</div>
+</div>
+
+<!-- Canvas -->
+<div id="canvas-container">
+  <div id="canvas">
+    <svg id="edges-svg">
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#888" />
+        </marker>
+        <marker id="arrow-inherit" markerWidth="10" markerHeight="10" refX="9" refY="4" orient="auto">
+          <path d="M0,0 L0,8 L9,4 z" fill="none" stroke="#c586c0" stroke-width="1.2" />
+        </marker>
+        <marker id="arrow-comp" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+          <polygon points="0,5 4,0 9,5 4,10" fill="#4ec9b0" />
+        </marker>
+      </defs>
+    </svg>
+    <!-- Nodes injected here -->
+  </div>
+  <div id="empty-state">
+    <h2>Clang Blueprint</h2>
+    <p>Run <strong>Blueprint: Rebuild Index</strong> to scan your C++ project,<br>
+       then <strong>Blueprint: Show Class Diagram</strong> to visualise.</p>
+  </div>
+</div>
+
+<!-- Minimap -->
+<div id="minimap">
+  <canvas id="minimap-canvas"></canvas>
+  <div id="minimap-viewport"></div>
+</div>
+
+<!-- Context menu (T-35) -->
+<div id="ctx-menu">
+  <div class="ctx-item" id="ctx-jump">Jump to Source</div>
+  <div class="ctx-item" id="ctx-upstream">Highlight Upstream Callers</div>
+  <div class="ctx-item" id="ctx-downstream">Highlight Downstream Dependencies</div>
+  <div class="ctx-item sep" id="ctx-clear">Clear Highlight</div>
+</div>
+
+<!-- Detail panel -->
+<div id="detail-panel">
+  <div class="detail-title" id="detail-class">—</div>
+  <div class="detail-row">File: <span id="detail-file">—</span></div>
+  <div class="detail-row">Line: <span id="detail-line">—</span></div>
+  <div class="detail-row">Responsibility: <span id="detail-resp">—</span></div>
+  <div id="detail-jump">
+    <button id="btn-jump" style="width:100%;margin-top:4px;">Jump to Source</button>
+  </div>
+</div>
+
+<script>
+// ============================================================
+//  State
+// ============================================================
+const vscode = acquireVsCodeApi();
+
+let allEntries   = [];
+let nodes        = {};   // className → {el, x, y, w, h, entry}
+let edges        = [];   // [{from, to, type}]
+let filterRegex  = null;
+let showPrivate  = false;
+let layoutDir    = 'TB';
+
+// Pan/zoom
+let panX = 0, panY = 0, scale = 1;
+let isDragging = false, dragStartX = 0, dragStartY = 0, panStartX = 0, panStartY = 0;
+
+// Selection
+let selectedClass  = null;
+let highlightClass = null;
+
+// ============================================================
+//  VS Code message handling
+// ============================================================
+window.addEventListener('message', ev => {
+  const msg = ev.data;
+  switch (msg.type) {
+    case 'loadEntries':
+      allEntries = msg.entries || [];
+      renderAll();
+      break;
+    case 'filter':
+      document.getElementById('filter-input').value = msg.pattern;
+      applyFilter(msg.pattern);
+      break;
+    case 'highlight':
+      selectNode(msg.className);
+      break;
+    case 'highlightUpstream':   // T-35
+      highlightOnly(msg.className, 'upstream');
+      break;
+    case 'highlightDownstream': // T-35
+      highlightOnly(msg.className, 'downstream');
+      break;
+    case 'layoutDirection':
+      layoutDir = msg.direction || 'TB';
+      renderAll();
+      break;
+  }
+});
+
+// Signal ready to receive entries
+vscode.postMessage({ type: 'ready' });
+
+// ============================================================
+//  Layout (simple Sugiyama-lite with dagre-style positioning)
+// ============================================================
+function computeLayout(entries, direction) {
+  const NODE_W = 200, NODE_H_BASE = 90, GAP_X = 60, GAP_Y = 50;
+  const COLS = Math.ceil(Math.sqrt(entries.length)) || 1;
+
+  const positions = {};
+  entries.forEach((e, i) => {
+    const col = i % COLS;
+    const row = Math.floor(i / COLS);
+    const nAttr = (e.attributes && e.attributes.length) ? Math.min(e.attributes.length, 4) : 0;
+    const nIfc = Math.min((e.interfaces || []).length, 5);
+    const h = NODE_H_BASE + nAttr * 13 + nIfc * 14;
+    if (direction === 'LR') {
+      positions[e.className] = { x: row * (NODE_W + GAP_Y), y: col * (NODE_H_BASE + GAP_X), w: NODE_W, h };
+    } else {
+      positions[e.className] = { x: col * (NODE_W + GAP_X), y: row * (NODE_H_BASE + GAP_Y), w: NODE_W, h };
+    }
+  });
+  return positions;
+}
+
+// ============================================================
+//  Render
+// ============================================================
+function renderAll() {
+  const canvas  = document.getElementById('canvas');
+  const svgEl   = document.getElementById('edges-svg');
+  const emptyEl = document.getElementById('empty-state');
+
+  // Clear old nodes (keep SVG)
+  Array.from(canvas.children).forEach(c => {
+    if (c.id !== 'edges-svg') canvas.removeChild(c);
+  });
+  while (svgEl.childNodes.length > 1) svgEl.removeChild(svgEl.lastChild); // keep <defs>
+
+  nodes = {};
+  edges = [];
+
+  const visible = getVisibleEntries();
+  emptyEl.style.display = visible.length === 0 ? 'block' : 'none';
+  if (visible.length === 0) return;
+
+  const positions = computeLayout(visible, layoutDir);
+  const classSet  = new Set(visible.map(e => e.className));
+
+  // Create nodes
+  visible.forEach(entry => {
+    const pos = positions[entry.className];
+    const el  = createNodeEl(entry);
+    el.style.left   = pos.x + 'px';
+    el.style.top    = pos.y + 'px';
+    el.style.width  = pos.w + 'px';
+    canvas.appendChild(el);
+
+    const rect = { x: pos.x, y: pos.y, w: pos.w, h: el.offsetHeight || pos.h };
+    nodes[entry.className] = { el, entry, ...rect };
+  });
+
+  // Force layout reflow to get real heights
+  requestAnimationFrame(() => {
+    Object.entries(nodes).forEach(([name, n]) => {
+      n.h = n.el.offsetHeight;
+    });
+    drawEdges(visible, classSet);
+    updateInfoBar(visible.length);
+    fitView();
+    renderMinimap();
+  });
+}
+
+function createNodeEl(entry) {
+  const el = document.createElement('div');
+  el.className = 'class-node';
+  el.dataset.class = entry.className;
+
+  // Header
+  const header = document.createElement('div');
+  header.className = 'node-header';
+
+  const nameEl = document.createElement('div');
+  nameEl.className = 'node-class-name';
+  nameEl.textContent = entry.className;
+  header.appendChild(nameEl);
+
+  if (entry.templateParams && entry.templateParams.length > 0) {
+    const tp = document.createElement('div');
+    tp.className = 'node-template';
+    tp.textContent = `<${entry.templateParams.join(', ')}>`;
+    header.appendChild(tp);
+  }
+
+  if (entry.namespace) {
+    const ns = document.createElement('div');
+    ns.className = 'node-namespace';
+    ns.textContent = entry.namespace;
+    header.appendChild(ns);
+  }
+  el.appendChild(header);
+
+  // Responsibility
+  if (entry.responsibility) {
+    const resp = document.createElement('div');
+    resp.className = 'node-responsibility';
+    resp.textContent = entry.responsibility;
+    el.appendChild(resp);
+  }
+
+  // Member fields (attributes)
+  const attrs = entry.attributes || [];
+  if (attrs.length > 0) {
+    const aDiv = document.createElement('div');
+    aDiv.className = 'node-attributes';
+    const shownA = attrs.slice(0, 4);
+    shownA.forEach(line => {
+      const a = document.createElement('div');
+      a.className = 'node-attribute';
+      a.textContent = line;
+      aDiv.appendChild(a);
+    });
+    if (attrs.length > 4) {
+      const more = document.createElement('div');
+      more.className = 'node-attribute';
+      more.style.color = '#555';
+      more.textContent = `… ${attrs.length - 4} fields`;
+      aDiv.appendChild(more);
+    }
+    el.appendChild(aDiv);
+  }
+
+  // Methods
+  const methods = entry.interfaces || [];
+  if (methods.length > 0) {
+    const mDiv = document.createElement('div');
+    mDiv.className = 'node-methods';
+    const shown = methods.slice(0, 5);
+    shown.forEach(sig => {
+      const m = document.createElement('div');
+      m.className = 'node-method';
+      m.textContent = trimSignature(sig);
+      mDiv.appendChild(m);
+    });
+    if (methods.length > 5) {
+      const more = document.createElement('div');
+      more.className = 'node-method';
+      more.style.color = '#555';
+      more.textContent = `… ${methods.length - 5} more`;
+      mDiv.appendChild(more);
+    }
+    el.appendChild(mDiv);
+  }
+
+  // Click handler
+  el.addEventListener('click', (e) => {
+    e.stopPropagation();
+    selectNode(entry.className);
+  });
+  el.addEventListener('dblclick', (e) => {
+    e.stopPropagation();
+    jumpToSource(entry);
+  });
+  // Right-click → context menu (T-35)
+  el.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    selectNode(entry.className);
+    showContextMenu(e.clientX, e.clientY, entry);
+  });
+
+  return el;
+}
+
+function trimSignature(sig) {
+  // "void readBlock(int lba, char * buf)" → "readBlock(int lba, …)"
+  const m = sig.match(/(\w+)\(([^)]*)\)/);
+  if (!m) return sig.substring(0, 40);
+  const name = m[1], params = m[2].split(',');
+  const abbrev = params.length > 2 ? params.slice(0,2).join(', ') + ', …' : params.join(', ');
+  return `${name}(${abbrev})`;
+}
+
+function drawEdges(entries, classSet) {
+  const svgEl = document.getElementById('edges-svg');
+
+  entries.forEach(entry => {
+    (entry.dependencies || []).forEach(dep => {
+      if (!classSet.has(dep.target)) return;
+      const from = nodes[entry.className];
+      const to   = nodes[dep.target];
+      if (!from || !to) return;
+
+      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      const fx = from.x + from.w / 2, fy = from.y + from.h / 2;
+      const tx = to.x   + to.w   / 2, ty = to.y   + to.h   / 2;
+      line.setAttribute('x1', fx); line.setAttribute('y1', fy);
+      line.setAttribute('x2', tx); line.setAttribute('y2', ty);
+      line.classList.add('edge-line', `edge-${dep.type}`);
+      svgEl.appendChild(line);
+
+      edges.push({ from: entry.className, to: dep.target, type: dep.type, el: line });
+    });
+  });
+}
+
+// ============================================================
+//  Filtering
+// ============================================================
+function getVisibleEntries() {
+  if (!allEntries.length) return [];
+  let result = allEntries;
+  if (filterRegex) {
+    try {
+      const re = new RegExp(filterRegex, 'i');
+      result = result.filter(e => re.test(e.className));
+    } catch (_) {}
+  }
+  return result;
+}
+
+function applyFilter(pattern) {
+  filterRegex = pattern || null;
+  renderAll();
+}
+
+// ============================================================
+//  Selection & highlighting
+// ============================================================
+function _buildAdjacency(className) {
+  // BFS to find all transitive upstream and downstream nodes
+  const upstream   = new Set();
+  const downstream = new Set();
+
+  // Direct edges
+  edges.forEach(e => {
+    if (e.to   === className) upstream.add(e.from);
+    if (e.from === className) downstream.add(e.to);
+  });
+
+  // BFS: transitive upstream
+  const upQueue = [...upstream];
+  while (upQueue.length) {
+    const cur = upQueue.pop();
+    edges.forEach(e => {
+      if (e.to === cur && !upstream.has(e.from)) {
+        upstream.add(e.from);
+        upQueue.push(e.from);
+      }
+    });
+  }
+
+  // BFS: transitive downstream
+  const downQueue = [...downstream];
+  while (downQueue.length) {
+    const cur = downQueue.pop();
+    edges.forEach(e => {
+      if (e.from === cur && !downstream.has(e.to)) {
+        downstream.add(e.to);
+        downQueue.push(e.to);
+      }
+    });
+  }
+
+  return { upstream, downstream };
+}
+
+function selectNode(className) {
+  // Clear previous
+  Object.values(nodes).forEach(n => {
+    n.el.classList.remove('selected', 'highlight-up', 'highlight-down', 'dimmed');
+  });
+
+  selectedClass = className;
+  const node = nodes[className];
+  if (!node) return;
+
+  node.el.classList.add('selected');
+
+  const { upstream, downstream } = _buildAdjacency(className);
+
+  Object.keys(nodes).forEach(name => {
+    if (name === className) return;
+    if (upstream.has(name))        nodes[name].el.classList.add('highlight-up');
+    else if (downstream.has(name)) nodes[name].el.classList.add('highlight-down');
+    else                           nodes[name].el.classList.add('dimmed');
+  });
+
+  // Detail panel
+  showDetail(node.entry);
+}
+
+// T-35: highlight only one direction
+function highlightOnly(className, direction) {
+  Object.values(nodes).forEach(n => {
+    n.el.classList.remove('selected', 'highlight-up', 'highlight-down', 'dimmed');
+  });
+
+  const node = nodes[className];
+  if (!node) return;
+  node.el.classList.add('selected');
+  selectedClass = className;
+
+  const { upstream, downstream } = _buildAdjacency(className);
+  const targetSet   = direction === 'upstream' ? upstream : downstream;
+  const targetClass = direction === 'upstream' ? 'highlight-up' : 'highlight-down';
+
+  Object.keys(nodes).forEach(name => {
+    if (name === className) return;
+    if (targetSet.has(name)) nodes[name].el.classList.add(targetClass);
+    else                     nodes[name].el.classList.add('dimmed');
+  });
+
+  showDetail(node.entry);
+}
+
+function showDetail(entry) {
+  document.getElementById('detail-panel').classList.add('visible');
+  document.getElementById('detail-class').textContent = entry.className;
+  document.getElementById('detail-file').textContent  = entry.fileLocation || '—';
+  document.getElementById('detail-line').textContent  = entry.lineNumber   || '—';
+  document.getElementById('detail-resp').textContent  = entry.responsibility || '—';
+  document.getElementById('btn-jump').onclick = () => jumpToSource(entry);
+}
+
+function jumpToSource(entry) {
+  vscode.postMessage({
+    type: 'nodeClick',
+    fileLocation: entry.fileLocation,
+    lineNumber:   entry.lineNumber,
+    className:    entry.className,
+  });
+}
+
+// ============================================================
+//  Context menu (T-35)
+// ============================================================
+let ctxEntry = null;
+const ctxMenu = document.getElementById('ctx-menu');
+
+function showContextMenu(x, y, entry) {
+  ctxEntry = entry;
+  ctxMenu.style.left = x + 'px';
+  ctxMenu.style.top  = y + 'px';
+  ctxMenu.classList.add('visible');
+}
+
+function hideContextMenu() {
+  ctxMenu.classList.remove('visible');
+  ctxEntry = null;
+}
+
+document.getElementById('ctx-jump').addEventListener('click', () => {
+  if (ctxEntry) jumpToSource(ctxEntry);
+  hideContextMenu();
+});
+document.getElementById('ctx-upstream').addEventListener('click', () => {
+  if (ctxEntry) highlightOnly(ctxEntry.className, 'upstream');
+  hideContextMenu();
+});
+document.getElementById('ctx-downstream').addEventListener('click', () => {
+  if (ctxEntry) highlightOnly(ctxEntry.className, 'downstream');
+  hideContextMenu();
+});
+document.getElementById('ctx-clear').addEventListener('click', () => {
+  Object.values(nodes).forEach(n => {
+    n.el.classList.remove('selected', 'highlight-up', 'highlight-down', 'dimmed');
+  });
+  document.getElementById('detail-panel').classList.remove('visible');
+  selectedClass = null;
+  hideContextMenu();
+});
+
+// Close context menu on any click outside
+window.addEventListener('click', () => hideContextMenu());
+window.addEventListener('contextmenu', () => hideContextMenu());
+
+// Click on background: deselect
+document.getElementById('canvas-container').addEventListener('click', () => {
+  selectedClass = null;
+  Object.values(nodes).forEach(n => {
+    n.el.classList.remove('selected', 'highlight-up', 'highlight-down', 'dimmed');
+  });
+  document.getElementById('detail-panel').classList.remove('visible');
+});
+
+// ============================================================
+//  Pan & Zoom
+// ============================================================
+function applyTransform() {
+  document.getElementById('canvas').style.transform =
+    `translate(${panX}px, ${panY}px) scale(${scale})`;
+  renderMinimap();
+}
+
+const container = document.getElementById('canvas-container');
+
+container.addEventListener('mousedown', e => {
+  if (e.button !== 0) return;
+  isDragging  = true;
+  dragStartX  = e.clientX;
+  dragStartY  = e.clientY;
+  panStartX   = panX;
+  panStartY   = panY;
+  container.classList.add('dragging');
+});
+window.addEventListener('mousemove', e => {
+  if (!isDragging) return;
+  panX = panStartX + (e.clientX - dragStartX);
+  panY = panStartY + (e.clientY - dragStartY);
+  applyTransform();
+});
+window.addEventListener('mouseup', () => {
+  isDragging = false;
+  container.classList.remove('dragging');
+});
+
+container.addEventListener('wheel', e => {
+  e.preventDefault();
+  const delta  = e.deltaY > 0 ? 0.9 : 1.1;
+  const rect   = container.getBoundingClientRect();
+  const mouseX = e.clientX - rect.left;
+  const mouseY = e.clientY - rect.top  - 40;
+
+  const newScale = Math.min(Math.max(scale * delta, 0.1), 4);
+  panX = mouseX - (mouseX - panX) * (newScale / scale);
+  panY = mouseY - (mouseY - panY) * (newScale / scale);
+  scale = newScale;
+  applyTransform();
+}, { passive: false });
+
+function fitView() {
+  if (!Object.keys(nodes).length) return;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  Object.values(nodes).forEach(n => {
+    minX = Math.min(minX, n.x);
+    minY = Math.min(minY, n.y);
+    maxX = Math.max(maxX, n.x + n.w);
+    maxY = Math.max(maxY, n.y + n.h);
+  });
+  const cw = container.offsetWidth;
+  const ch = container.offsetHeight - 40;
+  const scaleX = cw / (maxX - minX + 80);
+  const scaleY = ch / (maxY - minY + 80);
+  scale = Math.min(Math.min(scaleX, scaleY), 1.2);
+  panX  = (cw  - (maxX - minX) * scale) / 2 - minX * scale;
+  panY  = (ch  - (maxY - minY) * scale) / 2 - minY * scale;
+  applyTransform();
+}
+
+// ============================================================
+//  Minimap
+// ============================================================
+function renderMinimap() {
+  const mm   = document.getElementById('minimap');
+  const cvs  = document.getElementById('minimap-canvas');
+  const ctx  = cvs.getContext('2d');
+  cvs.width  = mm.offsetWidth;
+  cvs.height = mm.offsetHeight;
+
+  if (!Object.keys(nodes).length) return;
+
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  Object.values(nodes).forEach(n => {
+    minX = Math.min(minX, n.x); minY = Math.min(minY, n.y);
+    maxX = Math.max(maxX, n.x + n.w); maxY = Math.max(maxY, n.y + n.h);
+  });
+
+  const scaleM = Math.min(cvs.width / (maxX - minX + 40), cvs.height / (maxY - minY + 40)) * 0.9;
+  const offX = (cvs.width  - (maxX - minX) * scaleM) / 2 - minX * scaleM;
+  const offY = (cvs.height - (maxY - minY) * scaleM) / 2 - minY * scaleM;
+
+  ctx.clearRect(0, 0, cvs.width, cvs.height);
+  ctx.fillStyle = 'rgba(78,201,176,0.5)';
+  Object.values(nodes).forEach(n => {
+    ctx.fillRect(
+      n.x * scaleM + offX,
+      n.y * scaleM + offY,
+      Math.max(n.w * scaleM, 3),
+      Math.max(n.h * scaleM, 3)
+    );
+  });
+
+  // Viewport indicator
+  const cont = document.getElementById('canvas-container');
+  const vp = document.getElementById('minimap-viewport');
+  const cw = cont.offsetWidth, ch = cont.offsetHeight - 40;
+  const vpX = (-panX / scale) * scaleM + offX;
+  const vpY = (-panY / scale) * scaleM + offY;
+  const vpW = (cw / scale) * scaleM;
+  const vpH = (ch / scale) * scaleM;
+  vp.style.left   = vpX + 'px';
+  vp.style.top    = vpY + 'px';
+  vp.style.width  = vpW + 'px';
+  vp.style.height = vpH + 'px';
+}
+
+// ============================================================
+//  Toolbar buttons
+// ============================================================
+function updateInfoBar(count) {
+  document.getElementById('info-bar').textContent = `${count} class${count === 1 ? '' : 'es'}`;
+}
+
+document.getElementById('btn-fit').addEventListener('click', fitView);
+document.getElementById('btn-reset').addEventListener('click', () => {
+  scale = 1; panX = 0; panY = 0; applyTransform();
+});
+document.getElementById('filter-input').addEventListener('input', e => {
+  applyFilter(e.target.value);
+});
+
+document.getElementById('btn-toggle-private').addEventListener('click', function() {
+  showPrivate = !showPrivate;
+  this.classList.toggle('active', !showPrivate);
+  this.textContent = showPrivate ? 'Show Private' : 'Hide Private';
+  renderAll();
+});
+
+document.getElementById('btn-layout-tb').addEventListener('click', function() {
+  layoutDir = 'TB';
+  document.getElementById('btn-layout-lr').classList.remove('active');
+  this.classList.add('active');
+  renderAll();
+});
+document.getElementById('btn-layout-lr').addEventListener('click', function() {
+  layoutDir = 'LR';
+  document.getElementById('btn-layout-tb').classList.remove('active');
+  this.classList.add('active');
+  renderAll();
+});
+
+// Keyboard shortcuts
+window.addEventListener('keydown', e => {
+  if (e.key === 'f' || e.key === 'F') fitView();
+  if (e.key === 'Escape') {
+    selectedClass = null;
+    Object.values(nodes).forEach(n => {
+      n.el.classList.remove('selected', 'highlight-up', 'highlight-down', 'dimmed');
+    });
+    document.getElementById('detail-panel').classList.remove('visible');
+  }
+});
+</script>
+</body>
+</html>
