@@ -44,6 +44,7 @@ type WebviewMessage =
   | { type: "nodeClick"; fileLocation: string; lineNumber: number; className: string }
   | { type: "ready" }
   | { type: "search"; pattern: string }
+  | { type: "copyText"; text: string }
   | { type: "error"; message: string };
 
 // ---------------------------------------------------------------------------
@@ -158,6 +159,12 @@ function createOrShowPanel(context: vscode.ExtensionContext): vscode.WebviewPane
 
         case "search":
           handleSearch(diagramPanel!, message.pattern, context);
+          break;
+
+        case "copyText":
+          vscode.env.clipboard.writeText(message.text).then(() => {
+            vscode.window.setStatusBarMessage("$(clippy) Blueprint: Mermaid syntax copied", 3000);
+          });
           break;
 
         case "error":

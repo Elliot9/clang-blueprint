@@ -54,6 +54,29 @@
       color: #888;
     }
 
+    /* ── Export dropdown ── */
+    .export-wrap { position: relative; }
+    #export-menu {
+      position: absolute;
+      top: 30px; right: 0;
+      background: #2d2d2d;
+      border: 1px solid #555;
+      border-radius: 4px;
+      padding: 4px 0;
+      min-width: 160px;
+      z-index: 200;
+      display: none;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    }
+    #export-menu.visible { display: block; }
+    .export-item {
+      padding: 6px 14px;
+      font-size: 12px;
+      cursor: pointer;
+      color: #d4d4d4;
+    }
+    .export-item:hover { background: #094771; }
+
     /* ── Canvas ── */
     #canvas-container {
       position: absolute;
@@ -319,6 +342,13 @@
   <button id="btn-collapse-all" title="Collapse all nodes">Collapse All</button>
   <button id="btn-layout-tb"  class="active" title="Top-to-bottom layout">TB</button>
   <button id="btn-layout-lr"  title="Left-to-right layout">LR</button>
+  <div class="export-wrap">
+    <button id="btn-export" title="Export / Copy diagram">Export ▾</button>
+    <div id="export-menu">
+      <div class="export-item" id="export-mermaid">Copy Mermaid Syntax</div>
+      <div class="export-item" id="export-svg">Download SVG</div>
+    </div>
+  </div>
   <div id="info-bar">0 classes</div>
 </div>
 
@@ -502,10 +532,8 @@ function renderAll() {
   requestAnimationFrame(() => {
     Object.values(nodes).forEach(n => { n.h = n.el.offsetHeight; });
     drawEdges(visible, classSet);
-    const matchCount = filterRegex
-      ? visible.filter(e => { try { return new RegExp(filterRegex,'i').test(e.className); } catch(_){return false;} }).length
-      : visible.length;
-    updateInfoBar(visible.length, matchCount, totalCount);
+    const { matched } = _filterEntries(filterRegex);
+    updateInfoBar(visible.length, filterRegex ? matched.length : visible.length, totalCount);
     fitView();
     renderMinimap();
   });
@@ -521,9 +549,14 @@ function createNodeEl(entry) {
 
   const isCollapsed = collapsedNodes.has(entry.className);
 
+  // UI-14: namespace color as left border accent
+  const nsColor = namespaceColor(entry.namespace);
+  if (nsColor) el.style.borderLeftColor = nsColor;
+
   // ── Header (drag handle) ──
   const header = document.createElement('div');
   header.className = 'node-header';
+  if (nsColor) header.style.borderLeftColor = nsColor;
 
   // Collapse toggle
   const toggleBtn = document.createElement('button');
@@ -784,34 +817,73 @@ function hideTooltip() {
 }
 
 // ============================================================
-//  Filtering
+//  Namespace color (UI-14)
 // ============================================================
-function getVisibleEntries() {
-  if (!allEntries.length) return [];
+const _nsColorCache = {};
+function namespaceColor(ns) {
+  if (!ns) return null;
+  if (_nsColorCache[ns]) return _nsColorCache[ns];
+  // Deterministic hue from namespace string
+  let hash = 0;
+  for (let i = 0; i < ns.length; i++) hash = (hash * 31 + ns.charCodeAt(i)) >>> 0;
+  const hue = hash % 360;
+  const color = `hsl(${hue}, 55%, 38%)`;
+  _nsColorCache[ns] = color;
+  return color;
+}
 
-  if (filterRegex) {
-    try {
-      const re = new RegExp(filterRegex, 'i');
-      const matched = allEntries.filter(e => re.test(e.className));
-      const neighborNames = new Set();
-      matched.forEach(e => {
-        (e.dependencies || []).forEach(d => neighborNames.add(d.target));
-        (e.baseClasses || []).forEach(b => neighborNames.add(b));
-      });
-      const matchedNames = new Set(matched.map(e => e.className));
-      const neighbors = allEntries.filter(
-        e => !matchedNames.has(e.className) && neighborNames.has(e.className)
-      );
-      return [...matched, ...neighbors];
-    } catch (_) {}
+// ============================================================
+//  Filtering (UI-12: ns: prefix)
+// ============================================================
+// Returns { matched: [], neighbors: [], isNsFilter: bool }
+function _filterEntries(pattern) {
+  if (!allEntries.length) return { matched: [], neighbors: [], isNsFilter: false };
+
+  let matched, isNsFilter = false;
+  if (pattern) {
+    if (pattern.startsWith('ns:')) {
+      // UI-12: namespace filter
+      isNsFilter = true;
+      const nsPattern = pattern.slice(3).trim();
+      try {
+        const re = new RegExp(nsPattern, 'i');
+        matched = allEntries.filter(e => re.test(e.namespace || ''));
+      } catch (_) {
+        matched = allEntries.filter(e => (e.namespace || '').includes(nsPattern));
+      }
+    } else {
+      try {
+        const re = new RegExp(pattern, 'i');
+        matched = allEntries.filter(e => re.test(e.className));
+      } catch (_) {
+        matched = [];
+      }
+    }
+    const neighborNames = new Set();
+    matched.forEach(e => {
+      (e.dependencies || []).forEach(d => neighborNames.add(d.target));
+      (e.baseClasses || []).forEach(b => neighborNames.add(b));
+    });
+    const matchedNames = new Set(matched.map(e => e.className));
+    const neighbors = allEntries.filter(
+      e => !matchedNames.has(e.className) && neighborNames.has(e.className)
+    );
+    return { matched, neighbors, isNsFilter };
   }
 
-  return allEntries.slice(0, VIEW_LIMIT);
+  return { matched: allEntries.slice(0, VIEW_LIMIT), neighbors: [], isNsFilter: false };
+}
+
+function getVisibleEntries() {
+  if (!allEntries.length) return [];
+  const { matched, neighbors } = _filterEntries(filterRegex);
+  if (filterRegex) return [...matched, ...neighbors];
+  return matched; // already sliced in _filterEntries
 }
 
 function applyFilter(pattern) {
   filterRegex = pattern || null;
-  if (pattern && totalCount > 5000) {
+  if (pattern && totalCount > 5000 && !pattern.startsWith('ns:')) {
     vscode.postMessage({ type: 'search', pattern });
     return;
   }
@@ -1069,6 +1141,93 @@ function renderMinimap() {
 }
 
 // ============================================================
+//  Export (UI-15)
+// ============================================================
+function buildMermaid() {
+  const visible = getVisibleEntries();
+  const classSet = new Set(visible.map(e => e.className));
+  const lines = ['classDiagram'];
+  visible.forEach(entry => {
+    (entry.baseClasses || []).forEach(b => {
+      if (classSet.has(b)) lines.push(`  ${b} <|-- ${entry.className}`);
+    });
+    (entry.dependencies || []).forEach(dep => {
+      if (!classSet.has(dep.target)) return;
+      const arrow = dep.type === 'composition' ? '*--' :
+                    dep.type === 'aggregation'  ? 'o--' :
+                    dep.type === 'inheritance'  ? '<|--' : '-->';
+      const card = dep.cardinality ? ` : "${dep.cardinality}"` : '';
+      lines.push(`  ${entry.className} ${arrow} ${dep.target}${card}`);
+    });
+  });
+  visible.forEach(entry => {
+    lines.push(`  class ${entry.className} {`);
+    (entry.interfaces || []).forEach(m => {
+      const clean = m.replace(/\s+/g, ' ').trim();
+      lines.push(`    +${clean}`);
+    });
+    if (entry.responsibility) lines.push(`    <<${entry.responsibility}>>`);
+    lines.push('  }');
+  });
+  return lines.join('\n');
+}
+
+function exportSVG() {
+  const visible = getVisibleEntries();
+  const classSet = new Set(visible.map(e => e.className));
+  const PAD = 40;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  Object.values(nodes).forEach(n => {
+    minX = Math.min(minX, n.x); minY = Math.min(minY, n.y);
+    maxX = Math.max(maxX, n.x + n.w); maxY = Math.max(maxY, n.y + n.h);
+  });
+  const W = maxX - minX + PAD * 2, H = maxY - minY + PAD * 2;
+  const ox = PAD - minX, oy = PAD - minY;
+
+  const svgParts = [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" style="background:#1e1e1e;font-family:monospace">`,
+    `<defs><marker id="a" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">`,
+    `<path d="M0,0 L0,6 L8,3 z" fill="#888"/></marker></defs>`,
+  ];
+
+  // Edges
+  visible.forEach(entry => {
+    (entry.dependencies || []).forEach(dep => {
+      if (!classSet.has(dep.target)) return;
+      const f = nodes[entry.className], t = nodes[dep.target];
+      if (!f || !t) return;
+      const fx = f.x + f.w/2 + ox, fy = f.y + f.h/2 + oy;
+      const tx = t.x + t.w/2 + ox, ty = t.y + t.h/2 + oy;
+      const stroke = dep.type==='composition'?'#4ec9b0':dep.type==='inheritance'?'#c586c0':dep.type==='aggregation'?'#9cdcfe':'#888';
+      const dash = dep.type==='dependency' ? ' stroke-dasharray="5,3"' : '';
+      svgParts.push(`<line x1="${fx}" y1="${fy}" x2="${tx}" y2="${ty}" stroke="${stroke}" stroke-width="1.5"${dash} marker-end="url(#a)"/>`);
+    });
+  });
+
+  // Nodes
+  Object.values(nodes).forEach(n => {
+    const x = n.x + ox, y = n.y + oy;
+    const nsColor = namespaceColor(n.entry.namespace) || '#3e3e3e';
+    svgParts.push(`<rect x="${x}" y="${y}" width="${n.w}" height="${n.h}" rx="4" fill="#252526" stroke="${nsColor}" stroke-width="1.5"/>`);
+    svgParts.push(`<text x="${x+n.w/2}" y="${y+16}" text-anchor="middle" fill="#4ec9b0" font-size="11" font-weight="bold">${escSvg(n.entry.className)}</text>`);
+    if (n.entry.responsibility) {
+      svgParts.push(`<text x="${x+n.w/2}" y="${y+30}" text-anchor="middle" fill="#9cdcfe" font-size="9">${escSvg(n.entry.responsibility)}</text>`);
+    }
+  });
+
+  svgParts.push('</svg>');
+  const blob = new Blob([svgParts.join('\n')], { type: 'image/svg+xml' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'blueprint.svg'; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+function escSvg(s) {
+  return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ============================================================
 //  Info bar (UI-11)
 // ============================================================
 function updateInfoBar(visible, matched, total) {
@@ -1143,6 +1302,30 @@ document.getElementById('btn-layout-lr').addEventListener('click', function() {
   Object.keys(nodePositions).forEach(k => delete nodePositions[k]);
   renderAll();
 });
+
+// Export (UI-15)
+const exportMenu = document.getElementById('export-menu');
+document.getElementById('btn-export').addEventListener('click', (e) => {
+  e.stopPropagation();
+  exportMenu.classList.toggle('visible');
+});
+document.getElementById('export-mermaid').addEventListener('click', () => {
+  exportMenu.classList.remove('visible');
+  const text = buildMermaid();
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.getElementById('btn-export');
+    btn.textContent = 'Copied! ▾';
+    setTimeout(() => { btn.textContent = 'Export ▾'; }, 2000);
+  }).catch(() => {
+    // Fallback: send to extension which can write to clipboard
+    vscode.postMessage({ type: 'copyText', text });
+  });
+});
+document.getElementById('export-svg').addEventListener('click', () => {
+  exportMenu.classList.remove('visible');
+  exportSVG();
+});
+window.addEventListener('click', () => exportMenu.classList.remove('visible'));
 
 // Keyboard shortcuts
 window.addEventListener('keydown', e => {
