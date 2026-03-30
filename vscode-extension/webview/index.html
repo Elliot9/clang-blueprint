@@ -34,7 +34,7 @@
       padding: 3px 8px;
       border-radius: 3px;
       font-size: 12px;
-      width: 180px;
+      width: 200px;
     }
     #toolbar input:focus { outline: none; border-color: #007acc; }
     #toolbar button {
@@ -48,11 +48,6 @@
     }
     #toolbar button:hover { background: #505050; }
     #toolbar button.active { background: #007acc; border-color: #007acc; color: #fff; }
-    #toolbar label {
-      font-size: 11px;
-      color: #aaa;
-      margin-left: 4px;
-    }
     #info-bar {
       margin-left: auto;
       font-size: 11px;
@@ -66,7 +61,7 @@
       overflow: hidden;
       cursor: grab;
     }
-    #canvas-container.dragging { cursor: grabbing; }
+    #canvas-container.panning { cursor: grabbing; }
 
     #canvas {
       position: absolute;
@@ -79,10 +74,9 @@
       background: #252526;
       border: 1.5px solid #3e3e3e;
       border-radius: 4px;
-      min-width: 160px;
-      max-width: 260px;
+      min-width: 180px;
+      max-width: 280px;
       font-size: 11px;
-      cursor: pointer;
       user-select: none;
       transition: border-color 0.15s, box-shadow 0.15s;
     }
@@ -91,13 +85,39 @@
     .class-node.highlight-up   { border-color: #e8a000; box-shadow: 0 0 0 2px rgba(232,160,0,0.3); }
     .class-node.highlight-down { border-color: #4ec9b0; box-shadow: 0 0 0 2px rgba(78,201,176,0.3); }
     .class-node.dimmed { opacity: 0.25; }
+    .class-node.node-dragging { cursor: grabbing; z-index: 10; box-shadow: 0 4px 16px rgba(0,0,0,0.6); }
 
+    /* Header is the drag handle */
     .node-header {
       background: #2d2d2d;
-      padding: 5px 8px;
+      padding: 5px 8px 5px 6px;
       border-bottom: 1px solid #3e3e3e;
       border-radius: 3px 3px 0 0;
+      cursor: grab;
+      display: flex;
+      align-items: flex-start;
+      gap: 4px;
     }
+    .node-header:active { cursor: grabbing; }
+
+    .node-collapse-btn {
+      flex-shrink: 0;
+      width: 14px;
+      height: 14px;
+      margin-top: 1px;
+      background: none;
+      border: none;
+      color: #888;
+      cursor: pointer;
+      font-size: 9px;
+      padding: 0;
+      line-height: 14px;
+      text-align: center;
+    }
+    .node-collapse-btn:hover { color: #d4d4d4; }
+
+    .node-header-info { flex: 1; min-width: 0; }
+
     .node-class-name {
       font-weight: bold;
       font-size: 12px;
@@ -120,17 +140,39 @@
       padding: 3px 8px;
       font-size: 10px;
       color: #9cdcfe;
-      border-bottom: 1px solid #2d2d2d;
       font-style: italic;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
 
-    .node-methods {
-      padding: 4px 8px;
-      max-height: 80px;
+    /* Collapsible body */
+    .node-body { display: none; }
+    .node-body.expanded { display: block; }
+
+    .node-section-label {
+      padding: 2px 8px 1px;
+      font-size: 9px;
+      color: #555;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border-top: 1px solid #2d2d2d;
+    }
+
+    .node-attributes {
+      padding: 2px 8px 4px;
+    }
+    .node-attribute {
+      font-size: 10px;
+      color: #ce9178;
+      white-space: nowrap;
       overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.5;
+    }
+
+    .node-methods {
+      padding: 2px 8px 4px;
     }
     .node-method {
       font-size: 10px;
@@ -139,29 +181,35 @@
       overflow: hidden;
       text-overflow: ellipsis;
       line-height: 1.5;
+      cursor: pointer;
+      border-radius: 2px;
+      padding: 0 2px;
     }
+    .node-method:hover { background: #2a2d2e; color: #fff; }
     .node-method::before { content: "+ "; color: #6a9955; }
 
-    .node-attributes {
-      padding: 4px 8px 0;
-      max-height: 72px;
-      overflow: hidden;
-      border-bottom: 1px solid #2d2d2d;
-    }
-    .node-attribute {
-      font-size: 10px;
-      color: #ce9178;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      line-height: 1.45;
+    /* ── Tooltip ── */
+    #tooltip {
+      position: fixed;
+      background: #1f1f1f;
+      border: 1px solid #555;
+      border-radius: 3px;
+      padding: 5px 8px;
+      font-size: 11px;
+      color: #d4d4d4;
+      max-width: 400px;
+      white-space: pre-wrap;
+      word-break: break-all;
+      pointer-events: none;
+      z-index: 300;
+      display: none;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.5);
     }
 
     /* ── Edges (SVG) ── */
     #edges-svg {
       position: absolute;
       top: 0; left: 0;
-      pointer-events: none;
       overflow: visible;
     }
 
@@ -175,9 +223,18 @@
       stroke-width: 1.5;
       fill: none;
       marker-end: url(#arrow);
+      cursor: pointer;
     }
+    .edge-line:hover { stroke-width: 3; }
     .edge-inheritance { marker-end: url(#arrow-inherit); }
     .edge-composition { marker-end: url(#arrow-comp); }
+
+    .edge-hit {
+      stroke: transparent;
+      stroke-width: 12;
+      fill: none;
+      cursor: pointer;
+    }
 
     /* ── Minimap ── */
     #minimap {
@@ -190,10 +247,7 @@
       overflow: hidden;
       z-index: 50;
     }
-    #minimap-canvas {
-      width: 100%; height: 100%;
-      transform-origin: 0 0;
-    }
+    #minimap-canvas { width: 100%; height: 100%; }
     #minimap-viewport {
       position: absolute;
       border: 1px solid #007acc;
@@ -201,11 +255,11 @@
       pointer-events: none;
     }
 
-    /* ── Selected info panel ── */
+    /* ── Detail panel ── */
     #detail-panel {
       position: fixed;
       bottom: 16px; left: 16px;
-      width: 240px;
+      width: 260px;
       background: #252526;
       border: 1px solid #3e3e3e;
       border-radius: 4px;
@@ -220,14 +274,14 @@
     .detail-row span { color: #d4d4d4; }
     #detail-jump { margin-top: 8px; }
 
-    /* ── Context menu (T-35) ── */
+    /* ── Context menu ── */
     #ctx-menu {
       position: fixed;
       background: #2d2d2d;
       border: 1px solid #555;
       border-radius: 4px;
       padding: 4px 0;
-      min-width: 200px;
+      min-width: 210px;
       z-index: 200;
       display: none;
       box-shadow: 0 4px 12px rgba(0,0,0,0.5);
@@ -260,8 +314,9 @@
 <div id="toolbar">
   <button id="btn-fit"   title="Fit all nodes in view">Fit</button>
   <button id="btn-reset" title="Reset zoom to 100%">100%</button>
-  <input  id="filter-input" type="text" placeholder="Filter classes…" title="Regex filter by class name" />
-  <button id="btn-toggle-private" title="Toggle private members">Hide Private</button>
+  <input  id="filter-input" type="text" placeholder="Search classes…" title="Regex filter by class name" />
+  <button id="btn-expand-all"  title="Expand all nodes">Expand All</button>
+  <button id="btn-collapse-all" title="Collapse all nodes">Collapse All</button>
   <button id="btn-layout-tb"  class="active" title="Top-to-bottom layout">TB</button>
   <button id="btn-layout-lr"  title="Left-to-right layout">LR</button>
   <div id="info-bar">0 classes</div>
@@ -283,7 +338,6 @@
         </marker>
       </defs>
     </svg>
-    <!-- Nodes injected here -->
   </div>
   <div id="empty-state">
     <h2>Clang Blueprint</h2>
@@ -292,17 +346,21 @@
   </div>
 </div>
 
+<!-- Tooltip -->
+<div id="tooltip"></div>
+
 <!-- Minimap -->
 <div id="minimap">
   <canvas id="minimap-canvas"></canvas>
   <div id="minimap-viewport"></div>
 </div>
 
-<!-- Context menu (T-35) -->
+<!-- Context menu -->
 <div id="ctx-menu">
   <div class="ctx-item" id="ctx-jump">Jump to Source</div>
-  <div class="ctx-item" id="ctx-upstream">Highlight Upstream Callers</div>
-  <div class="ctx-item" id="ctx-downstream">Highlight Downstream Dependencies</div>
+  <div class="ctx-item" id="ctx-focus">Focus Neighborhood</div>
+  <div class="ctx-item" id="ctx-upstream">Highlight Upstream</div>
+  <div class="ctx-item" id="ctx-downstream">Highlight Downstream</div>
   <div class="ctx-item sep" id="ctx-clear">Clear Highlight</div>
 </div>
 
@@ -311,6 +369,7 @@
   <div class="detail-title" id="detail-class">—</div>
   <div class="detail-row">File: <span id="detail-file">—</span></div>
   <div class="detail-row">Line: <span id="detail-line">—</span></div>
+  <div class="detail-row">Namespace: <span id="detail-ns">—</span></div>
   <div class="detail-row">Responsibility: <span id="detail-resp">—</span></div>
   <div id="detail-jump">
     <button id="btn-jump" style="width:100%;margin-top:4px;">Jump to Source</button>
@@ -323,22 +382,28 @@
 // ============================================================
 const vscode = acquireVsCodeApi();
 
-let allEntries   = [];
-let totalCount   = 0;    // total classes in index (may exceed allEntries.length)
-let nodes        = {};   // className → {el, x, y, w, h, entry}
-let edges        = [];   // [{from, to, type}]
-let filterRegex  = null;
-let showPrivate  = false;
-let layoutDir    = 'TB';
-const VIEW_LIMIT = 150;  // max nodes to render without a filter
+let allEntries    = [];
+let totalCount    = 0;
+let nodes         = {};   // className → {el, x, y, w, h, entry}
+let edges         = [];   // [{from, to, type, cardinality, elLine, elHit}]
+let filterRegex   = null;
+let layoutDir     = 'TB';
+const VIEW_LIMIT  = 150;
 
-// Pan/zoom
+// UI-02: persisted node positions (survive re-render)
+const nodePositions = {};   // className → {x, y}
+// UI-03: collapsed state
+const collapsedNodes = new Set();
+
+// Pan/zoom (canvas level)
 let panX = 0, panY = 0, scale = 1;
-let isDragging = false, dragStartX = 0, dragStartY = 0, panStartX = 0, panStartY = 0;
+let isPanning = false, panStartX = 0, panStartY = 0, panOriginX = 0, panOriginY = 0;
+
+// UI-01: per-node drag
+let nodeDrag = null; // { className, startMouseX, startMouseY, startNodeX, startNodeY }
 
 // Selection
 let selectedClass  = null;
-let highlightClass = null;
 
 // ============================================================
 //  VS Code message handling
@@ -349,6 +414,7 @@ window.addEventListener('message', ev => {
     case 'loadEntries':
       allEntries = msg.entries || [];
       totalCount = msg.totalCount || allEntries.length;
+      // Clear saved positions when a new search result arrives (different class set)
       renderAll();
       break;
     case 'filter':
@@ -358,10 +424,10 @@ window.addEventListener('message', ev => {
     case 'highlight':
       selectNode(msg.className);
       break;
-    case 'highlightUpstream':   // T-35
+    case 'highlightUpstream':
       highlightOnly(msg.className, 'upstream');
       break;
-    case 'highlightDownstream': // T-35
+    case 'highlightDownstream':
       highlightOnly(msg.className, 'downstream');
       break;
     case 'layoutDirection':
@@ -371,28 +437,31 @@ window.addEventListener('message', ev => {
   }
 });
 
-// Signal ready to receive entries
 vscode.postMessage({ type: 'ready' });
 
 // ============================================================
-//  Layout (simple Sugiyama-lite with dagre-style positioning)
+//  Layout
 // ============================================================
 function computeLayout(entries, direction) {
-  const NODE_W = 200, NODE_H_BASE = 90, GAP_X = 60, GAP_Y = 50;
+  const NODE_W = 200, NODE_H_BASE = 46, GAP_X = 60, GAP_Y = 50;
   const COLS = Math.ceil(Math.sqrt(entries.length)) || 1;
 
   const positions = {};
-  entries.forEach((e, i) => {
-    const col = i % COLS;
-    const row = Math.floor(i / COLS);
-    const nAttr = (e.attributes && e.attributes.length) ? Math.min(e.attributes.length, 4) : 0;
-    const nIfc = Math.min((e.interfaces || []).length, 5);
-    const h = NODE_H_BASE + nAttr * 13 + nIfc * 14;
+  let col = 0, row = 0;
+  entries.forEach((e) => {
+    // UI-02: use saved position if available
+    if (nodePositions[e.className]) {
+      positions[e.className] = { ...nodePositions[e.className], w: NODE_W, h: NODE_H_BASE };
+      return;
+    }
+    const h = NODE_H_BASE;
     if (direction === 'LR') {
       positions[e.className] = { x: row * (NODE_W + GAP_Y), y: col * (NODE_H_BASE + GAP_X), w: NODE_W, h };
     } else {
       positions[e.className] = { x: col * (NODE_W + GAP_X), y: row * (NODE_H_BASE + GAP_Y), w: NODE_W, h };
     }
+    col++;
+    if (col >= COLS) { col = 0; row++; }
   });
   return positions;
 }
@@ -405,129 +474,170 @@ function renderAll() {
   const svgEl   = document.getElementById('edges-svg');
   const emptyEl = document.getElementById('empty-state');
 
-  // Clear old nodes (keep SVG)
   Array.from(canvas.children).forEach(c => {
     if (c.id !== 'edges-svg') canvas.removeChild(c);
   });
-  while (svgEl.childNodes.length > 1) svgEl.removeChild(svgEl.lastChild); // keep <defs>
+  while (svgEl.childNodes.length > 1) svgEl.removeChild(svgEl.lastChild);
 
   nodes = {};
   edges = [];
 
   const visible = getVisibleEntries();
   emptyEl.style.display = visible.length === 0 ? 'block' : 'none';
-  if (visible.length === 0) return;
+  if (visible.length === 0) { updateInfoBar(0, 0, 0); return; }
 
   const positions = computeLayout(visible, layoutDir);
   const classSet  = new Set(visible.map(e => e.className));
 
-  // Create nodes
   visible.forEach(entry => {
     const pos = positions[entry.className];
     const el  = createNodeEl(entry);
-    el.style.left   = pos.x + 'px';
-    el.style.top    = pos.y + 'px';
-    el.style.width  = pos.w + 'px';
+    el.style.left  = pos.x + 'px';
+    el.style.top   = pos.y + 'px';
+    el.style.width = pos.w + 'px';
     canvas.appendChild(el);
-
-    const rect = { x: pos.x, y: pos.y, w: pos.w, h: el.offsetHeight || pos.h };
-    nodes[entry.className] = { el, entry, ...rect };
+    nodes[entry.className] = { el, entry, x: pos.x, y: pos.y, w: pos.w, h: pos.h };
   });
 
-  // Force layout reflow to get real heights
   requestAnimationFrame(() => {
-    Object.entries(nodes).forEach(([name, n]) => {
-      n.h = n.el.offsetHeight;
-    });
+    Object.values(nodes).forEach(n => { n.h = n.el.offsetHeight; });
     drawEdges(visible, classSet);
-    updateInfoBar(visible.length);
+    const matchCount = filterRegex
+      ? visible.filter(e => { try { return new RegExp(filterRegex,'i').test(e.className); } catch(_){return false;} }).length
+      : visible.length;
+    updateInfoBar(visible.length, matchCount, totalCount);
     fitView();
     renderMinimap();
   });
 }
 
+// ============================================================
+//  Create node element
+// ============================================================
 function createNodeEl(entry) {
   const el = document.createElement('div');
   el.className = 'class-node';
   el.dataset.class = entry.className;
 
-  // Header
+  const isCollapsed = collapsedNodes.has(entry.className);
+
+  // ── Header (drag handle) ──
   const header = document.createElement('div');
   header.className = 'node-header';
+
+  // Collapse toggle
+  const toggleBtn = document.createElement('button');
+  toggleBtn.className = 'node-collapse-btn';
+  toggleBtn.textContent = isCollapsed ? '▶' : '▼';
+  toggleBtn.title = isCollapsed ? 'Expand' : 'Collapse';
+  toggleBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleCollapse(entry.className, el, toggleBtn);
+  });
+  header.appendChild(toggleBtn);
+
+  const info = document.createElement('div');
+  info.className = 'node-header-info';
 
   const nameEl = document.createElement('div');
   nameEl.className = 'node-class-name';
   nameEl.textContent = entry.className;
-  header.appendChild(nameEl);
+  nameEl.title = entry.className;
+  info.appendChild(nameEl);
 
   if (entry.templateParams && entry.templateParams.length > 0) {
     const tp = document.createElement('div');
     tp.className = 'node-template';
     tp.textContent = `<${entry.templateParams.join(', ')}>`;
-    header.appendChild(tp);
+    info.appendChild(tp);
   }
-
   if (entry.namespace) {
     const ns = document.createElement('div');
     ns.className = 'node-namespace';
     ns.textContent = entry.namespace;
-    header.appendChild(ns);
+    info.appendChild(ns);
   }
+  header.appendChild(info);
   el.appendChild(header);
 
-  // Responsibility
+  // Responsibility (always visible)
   if (entry.responsibility) {
     const resp = document.createElement('div');
     resp.className = 'node-responsibility';
     resp.textContent = entry.responsibility;
+    resp.title = entry.responsibility;
     el.appendChild(resp);
   }
 
-  // Member fields (attributes)
+  // ── Collapsible body ──
+  const body = document.createElement('div');
+  body.className = 'node-body' + (isCollapsed ? '' : ' expanded');
+
+  // Attributes section
   const attrs = entry.attributes || [];
   if (attrs.length > 0) {
+    const lbl = document.createElement('div');
+    lbl.className = 'node-section-label';
+    lbl.textContent = 'Fields';
+    body.appendChild(lbl);
+
     const aDiv = document.createElement('div');
     aDiv.className = 'node-attributes';
-    const shownA = attrs.slice(0, 4);
-    shownA.forEach(line => {
+    attrs.forEach(line => {
       const a = document.createElement('div');
       a.className = 'node-attribute';
       a.textContent = line;
+      a.title = line;
       aDiv.appendChild(a);
     });
-    if (attrs.length > 4) {
-      const more = document.createElement('div');
-      more.className = 'node-attribute';
-      more.style.color = '#555';
-      more.textContent = `… ${attrs.length - 4} fields`;
-      aDiv.appendChild(more);
-    }
-    el.appendChild(aDiv);
+    body.appendChild(aDiv);
   }
 
-  // Methods
+  // Methods section
   const methods = entry.interfaces || [];
   if (methods.length > 0) {
+    const lbl = document.createElement('div');
+    lbl.className = 'node-section-label';
+    lbl.textContent = 'Methods';
+    body.appendChild(lbl);
+
     const mDiv = document.createElement('div');
     mDiv.className = 'node-methods';
-    const shown = methods.slice(0, 5);
-    shown.forEach(sig => {
+    methods.forEach(sig => {
       const m = document.createElement('div');
       m.className = 'node-method';
       m.textContent = trimSignature(sig);
+      // UI-07: full signature tooltip
+      m.title = sig;
+      // UI-08: click method → jump to source (uses class line as best effort)
+      m.addEventListener('click', (e) => {
+        e.stopPropagation();
+        jumpToSource(entry);
+      });
       mDiv.appendChild(m);
     });
-    if (methods.length > 5) {
-      const more = document.createElement('div');
-      more.className = 'node-method';
-      more.style.color = '#555';
-      more.textContent = `… ${methods.length - 5} more`;
-      mDiv.appendChild(more);
-    }
-    el.appendChild(mDiv);
+    body.appendChild(mDiv);
   }
 
-  // Click handler
+  el.appendChild(body);
+
+  // ── Drag on header (UI-01) ──
+  header.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    e.stopPropagation(); // prevent canvas pan
+    const n = nodes[entry.className];
+    if (!n) return;
+    nodeDrag = {
+      className:    entry.className,
+      startMouseX:  e.clientX,
+      startMouseY:  e.clientY,
+      startNodeX:   n.x,
+      startNodeY:   n.y,
+    };
+    el.classList.add('node-dragging');
+  });
+
+  // Click on node body → select
   el.addEventListener('click', (e) => {
     e.stopPropagation();
     selectNode(entry.className);
@@ -536,7 +646,6 @@ function createNodeEl(entry) {
     e.stopPropagation();
     jumpToSource(entry);
   });
-  // Right-click → context menu (T-35)
   el.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -547,15 +656,42 @@ function createNodeEl(entry) {
   return el;
 }
 
+// UI-03/06: toggle collapse
+function toggleCollapse(className, el, btn) {
+  const body = el.querySelector('.node-body');
+  if (collapsedNodes.has(className)) {
+    collapsedNodes.delete(className);
+    body.classList.add('expanded');
+    btn.textContent = '▼';
+    btn.title = 'Collapse';
+  } else {
+    collapsedNodes.add(className);
+    body.classList.remove('expanded');
+    btn.textContent = '▶';
+    btn.title = 'Expand';
+  }
+  // Update node height and redraw edges
+  requestAnimationFrame(() => {
+    const n = nodes[className];
+    if (n) {
+      n.h = n.el.offsetHeight;
+      redrawEdges();
+      renderMinimap();
+    }
+  });
+}
+
 function trimSignature(sig) {
-  // "void readBlock(int lba, char * buf)" → "readBlock(int lba, …)"
-  const m = sig.match(/(\w+)\(([^)]*)\)/);
-  if (!m) return sig.substring(0, 40);
-  const name = m[1], params = m[2].split(',');
+  const m = sig.match(/(\w+)\s*\(([^)]*)\)/);
+  if (!m) return sig.substring(0, 45);
+  const name = m[1], params = m[2].split(',').map(s => s.trim()).filter(Boolean);
   const abbrev = params.length > 2 ? params.slice(0,2).join(', ') + ', …' : params.join(', ');
   return `${name}(${abbrev})`;
 }
 
+// ============================================================
+//  Edges
+// ============================================================
 function drawEdges(entries, classSet) {
   const svgEl = document.getElementById('edges-svg');
 
@@ -564,19 +700,87 @@ function drawEdges(entries, classSet) {
       if (!classSet.has(dep.target)) return;
       const from = nodes[entry.className];
       const to   = nodes[dep.target];
-      if (!from || !to) return;
+      if (!from || !to || from === to) return;
 
+      const [fx, fy, tx, ty] = edgeEndpoints(from, to);
+
+      // Visible line
       const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-      const fx = from.x + from.w / 2, fy = from.y + from.h / 2;
-      const tx = to.x   + to.w   / 2, ty = to.y   + to.h   / 2;
       line.setAttribute('x1', fx); line.setAttribute('y1', fy);
       line.setAttribute('x2', tx); line.setAttribute('y2', ty);
       line.classList.add('edge-line', `edge-${dep.type}`);
       svgEl.appendChild(line);
 
-      edges.push({ from: entry.className, to: dep.target, type: dep.type, el: line });
+      // Invisible wide hit target (UI-09)
+      const hit = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      hit.setAttribute('x1', fx); hit.setAttribute('y1', fy);
+      hit.setAttribute('x2', tx); hit.setAttribute('y2', ty);
+      hit.classList.add('edge-hit');
+      const edgeInfo = dep;
+      hit.addEventListener('mouseenter', (e) => {
+        const card = dep.cardinality ? ` [${dep.cardinality}]` : '';
+        showTooltip(e.clientX + 12, e.clientY + 8,
+          `${entry.className} → ${dep.target}\nType: ${dep.type}${card}`);
+      });
+      hit.addEventListener('mouseleave', hideTooltip);
+      // UI-10: click edge → highlight both ends
+      hit.addEventListener('click', (e) => {
+        e.stopPropagation();
+        highlightEdgePair(entry.className, dep.target);
+      });
+      svgEl.appendChild(hit);
+
+      edges.push({ from: entry.className, to: dep.target, type: dep.type,
+                   cardinality: dep.cardinality, elLine: line, elHit: hit });
     });
   });
+}
+
+function edgeEndpoints(from, to) {
+  const fx = from.x + from.w / 2, fy = from.y + from.h / 2;
+  const tx = to.x   + to.w   / 2, ty = to.y   + to.h   / 2;
+  return [fx, fy, tx, ty];
+}
+
+function redrawEdges() {
+  // Update all existing edge positions after node move/resize
+  edges.forEach(e => {
+    const from = nodes[e.from], to = nodes[e.to];
+    if (!from || !to) return;
+    const [fx, fy, tx, ty] = edgeEndpoints(from, to);
+    for (const el of [e.elLine, e.elHit]) {
+      if (!el) continue;
+      el.setAttribute('x1', fx); el.setAttribute('y1', fy);
+      el.setAttribute('x2', tx); el.setAttribute('y2', ty);
+    }
+  });
+}
+
+// UI-10
+function highlightEdgePair(fromName, toName) {
+  Object.values(nodes).forEach(n =>
+    n.el.classList.remove('selected','highlight-up','highlight-down','dimmed'));
+  const f = nodes[fromName], t = nodes[toName];
+  if (f) { f.el.classList.add('selected'); }
+  if (t) { t.el.classList.add('highlight-down'); }
+  Object.keys(nodes).forEach(name => {
+    if (name !== fromName && name !== toName)
+      nodes[name].el.classList.add('dimmed');
+  });
+}
+
+// ============================================================
+//  Tooltip
+// ============================================================
+const tooltipEl = document.getElementById('tooltip');
+function showTooltip(x, y, text) {
+  tooltipEl.textContent = text;
+  tooltipEl.style.display = 'block';
+  tooltipEl.style.left = x + 'px';
+  tooltipEl.style.top  = y + 'px';
+}
+function hideTooltip() {
+  tooltipEl.style.display = 'none';
 }
 
 // ============================================================
@@ -588,15 +792,12 @@ function getVisibleEntries() {
   if (filterRegex) {
     try {
       const re = new RegExp(filterRegex, 'i');
-      // Matched classes
       const matched = allEntries.filter(e => re.test(e.className));
-      // Collect all neighbor class names (1-hop)
       const neighborNames = new Set();
       matched.forEach(e => {
         (e.dependencies || []).forEach(d => neighborNames.add(d.target));
         (e.baseClasses || []).forEach(b => neighborNames.add(b));
       });
-      // Include matched + their neighbors that exist in allEntries
       const matchedNames = new Set(matched.map(e => e.className));
       const neighbors = allEntries.filter(
         e => !matchedNames.has(e.className) && neighborNames.has(e.className)
@@ -605,16 +806,13 @@ function getVisibleEntries() {
     } catch (_) {}
   }
 
-  // No filter: show up to VIEW_LIMIT with a notice
   return allEntries.slice(0, VIEW_LIMIT);
 }
 
 function applyFilter(pattern) {
   filterRegex = pattern || null;
-  // For large indices, delegate search to the extension (server-side filter)
   if (pattern && totalCount > 5000) {
     vscode.postMessage({ type: 'search', pattern });
-    // renderAll() will be called when loadEntries response arrives
     return;
   }
   renderAll();
@@ -624,89 +822,60 @@ function applyFilter(pattern) {
 //  Selection & highlighting
 // ============================================================
 function _buildAdjacency(className) {
-  // BFS to find all transitive upstream and downstream nodes
-  const upstream   = new Set();
-  const downstream = new Set();
-
-  // Direct edges
+  const upstream = new Set(), downstream = new Set();
   edges.forEach(e => {
     if (e.to   === className) upstream.add(e.from);
     if (e.from === className) downstream.add(e.to);
   });
-
-  // BFS: transitive upstream
   const upQueue = [...upstream];
   while (upQueue.length) {
     const cur = upQueue.pop();
     edges.forEach(e => {
-      if (e.to === cur && !upstream.has(e.from)) {
-        upstream.add(e.from);
-        upQueue.push(e.from);
-      }
+      if (e.to === cur && !upstream.has(e.from)) { upstream.add(e.from); upQueue.push(e.from); }
     });
   }
-
-  // BFS: transitive downstream
   const downQueue = [...downstream];
   while (downQueue.length) {
     const cur = downQueue.pop();
     edges.forEach(e => {
-      if (e.from === cur && !downstream.has(e.to)) {
-        downstream.add(e.to);
-        downQueue.push(e.to);
-      }
+      if (e.from === cur && !downstream.has(e.to)) { downstream.add(e.to); downQueue.push(e.to); }
     });
   }
-
   return { upstream, downstream };
 }
 
 function selectNode(className) {
-  // Clear previous
-  Object.values(nodes).forEach(n => {
-    n.el.classList.remove('selected', 'highlight-up', 'highlight-down', 'dimmed');
-  });
-
+  Object.values(nodes).forEach(n =>
+    n.el.classList.remove('selected','highlight-up','highlight-down','dimmed'));
   selectedClass = className;
   const node = nodes[className];
   if (!node) return;
-
   node.el.classList.add('selected');
-
   const { upstream, downstream } = _buildAdjacency(className);
-
   Object.keys(nodes).forEach(name => {
     if (name === className) return;
     if (upstream.has(name))        nodes[name].el.classList.add('highlight-up');
     else if (downstream.has(name)) nodes[name].el.classList.add('highlight-down');
     else                           nodes[name].el.classList.add('dimmed');
   });
-
-  // Detail panel
   showDetail(node.entry);
 }
 
-// T-35: highlight only one direction
 function highlightOnly(className, direction) {
-  Object.values(nodes).forEach(n => {
-    n.el.classList.remove('selected', 'highlight-up', 'highlight-down', 'dimmed');
-  });
-
+  Object.values(nodes).forEach(n =>
+    n.el.classList.remove('selected','highlight-up','highlight-down','dimmed'));
   const node = nodes[className];
   if (!node) return;
   node.el.classList.add('selected');
   selectedClass = className;
-
   const { upstream, downstream } = _buildAdjacency(className);
   const targetSet   = direction === 'upstream' ? upstream : downstream;
   const targetClass = direction === 'upstream' ? 'highlight-up' : 'highlight-down';
-
   Object.keys(nodes).forEach(name => {
     if (name === className) return;
     if (targetSet.has(name)) nodes[name].el.classList.add(targetClass);
     else                     nodes[name].el.classList.add('dimmed');
   });
-
   showDetail(node.entry);
 }
 
@@ -715,6 +884,7 @@ function showDetail(entry) {
   document.getElementById('detail-class').textContent = entry.className;
   document.getElementById('detail-file').textContent  = entry.fileLocation || '—';
   document.getElementById('detail-line').textContent  = entry.lineNumber   || '—';
+  document.getElementById('detail-ns').textContent    = entry.namespace    || '—';
   document.getElementById('detail-resp').textContent  = entry.responsibility || '—';
   document.getElementById('btn-jump').onclick = () => jumpToSource(entry);
 }
@@ -729,7 +899,7 @@ function jumpToSource(entry) {
 }
 
 // ============================================================
-//  Context menu (T-35)
+//  Context menu
 // ============================================================
 let ctxEntry = null;
 const ctxMenu = document.getElementById('ctx-menu');
@@ -740,48 +910,81 @@ function showContextMenu(x, y, entry) {
   ctxMenu.style.top  = y + 'px';
   ctxMenu.classList.add('visible');
 }
-
-function hideContextMenu() {
-  ctxMenu.classList.remove('visible');
-  ctxEntry = null;
-}
+function hideContextMenu() { ctxMenu.classList.remove('visible'); ctxEntry = null; }
 
 document.getElementById('ctx-jump').addEventListener('click', () => {
-  if (ctxEntry) jumpToSource(ctxEntry);
+  if (ctxEntry) jumpToSource(ctxEntry); hideContextMenu();
+});
+// UI-13: Focus Neighborhood
+document.getElementById('ctx-focus').addEventListener('click', () => {
+  if (!ctxEntry) { hideContextMenu(); return; }
+  const pattern = `^${ctxEntry.className.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}$`;
+  document.getElementById('filter-input').value = pattern;
+  applyFilter(pattern);
   hideContextMenu();
 });
 document.getElementById('ctx-upstream').addEventListener('click', () => {
-  if (ctxEntry) highlightOnly(ctxEntry.className, 'upstream');
-  hideContextMenu();
+  if (ctxEntry) highlightOnly(ctxEntry.className, 'upstream'); hideContextMenu();
 });
 document.getElementById('ctx-downstream').addEventListener('click', () => {
-  if (ctxEntry) highlightOnly(ctxEntry.className, 'downstream');
-  hideContextMenu();
+  if (ctxEntry) highlightOnly(ctxEntry.className, 'downstream'); hideContextMenu();
 });
 document.getElementById('ctx-clear').addEventListener('click', () => {
-  Object.values(nodes).forEach(n => {
-    n.el.classList.remove('selected', 'highlight-up', 'highlight-down', 'dimmed');
-  });
+  Object.values(nodes).forEach(n =>
+    n.el.classList.remove('selected','highlight-up','highlight-down','dimmed'));
   document.getElementById('detail-panel').classList.remove('visible');
   selectedClass = null;
   hideContextMenu();
 });
 
-// Close context menu on any click outside
 window.addEventListener('click', () => hideContextMenu());
-window.addEventListener('contextmenu', () => hideContextMenu());
-
-// Click on background: deselect
 document.getElementById('canvas-container').addEventListener('click', () => {
   selectedClass = null;
-  Object.values(nodes).forEach(n => {
-    n.el.classList.remove('selected', 'highlight-up', 'highlight-down', 'dimmed');
-  });
+  Object.values(nodes).forEach(n =>
+    n.el.classList.remove('selected','highlight-up','highlight-down','dimmed'));
   document.getElementById('detail-panel').classList.remove('visible');
 });
 
 // ============================================================
-//  Pan & Zoom
+//  Node drag (UI-01)
+// ============================================================
+window.addEventListener('mousemove', e => {
+  if (nodeDrag) {
+    const dx = (e.clientX - nodeDrag.startMouseX) / scale;
+    const dy = (e.clientY - nodeDrag.startMouseY) / scale;
+    const nx = nodeDrag.startNodeX + dx;
+    const ny = nodeDrag.startNodeY + dy;
+    const n = nodes[nodeDrag.className];
+    if (n) {
+      n.x = nx; n.y = ny;
+      n.el.style.left = nx + 'px';
+      n.el.style.top  = ny + 'px';
+      // UI-02: save position
+      nodePositions[nodeDrag.className] = { x: nx, y: ny };
+      redrawEdges();
+      renderMinimap();
+    }
+    return;
+  }
+  if (isPanning) {
+    panX = panOriginX + (e.clientX - panStartX);
+    panY = panOriginY + (e.clientY - panStartY);
+    applyTransform();
+  }
+});
+
+window.addEventListener('mouseup', () => {
+  if (nodeDrag) {
+    const n = nodes[nodeDrag.className];
+    if (n) n.el.classList.remove('node-dragging');
+    nodeDrag = null;
+  }
+  isPanning = false;
+  document.getElementById('canvas-container').classList.remove('panning');
+});
+
+// ============================================================
+//  Canvas Pan & Zoom
 // ============================================================
 function applyTransform() {
   document.getElementById('canvas').style.transform =
@@ -792,23 +995,13 @@ function applyTransform() {
 const container = document.getElementById('canvas-container');
 
 container.addEventListener('mousedown', e => {
-  if (e.button !== 0) return;
-  isDragging  = true;
-  dragStartX  = e.clientX;
-  dragStartY  = e.clientY;
-  panStartX   = panX;
-  panStartY   = panY;
-  container.classList.add('dragging');
-});
-window.addEventListener('mousemove', e => {
-  if (!isDragging) return;
-  panX = panStartX + (e.clientX - dragStartX);
-  panY = panStartY + (e.clientY - dragStartY);
-  applyTransform();
-});
-window.addEventListener('mouseup', () => {
-  isDragging = false;
-  container.classList.remove('dragging');
+  if (e.button !== 0 || nodeDrag) return;
+  isPanning  = true;
+  panStartX  = e.clientX;
+  panStartY  = e.clientY;
+  panOriginX = panX;
+  panOriginY = panY;
+  container.classList.add('panning');
 });
 
 container.addEventListener('wheel', e => {
@@ -816,9 +1009,8 @@ container.addEventListener('wheel', e => {
   const delta  = e.deltaY > 0 ? 0.9 : 1.1;
   const rect   = container.getBoundingClientRect();
   const mouseX = e.clientX - rect.left;
-  const mouseY = e.clientY - rect.top  - 40;
-
-  const newScale = Math.min(Math.max(scale * delta, 0.1), 4);
+  const mouseY = e.clientY - rect.top - 40;
+  const newScale = Math.min(Math.max(scale * delta, 0.08), 4);
   panX = mouseX - (mouseX - panX) * (newScale / scale);
   panY = mouseY - (mouseY - panY) * (newScale / scale);
   scale = newScale;
@@ -829,18 +1021,14 @@ function fitView() {
   if (!Object.keys(nodes).length) return;
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   Object.values(nodes).forEach(n => {
-    minX = Math.min(minX, n.x);
-    minY = Math.min(minY, n.y);
-    maxX = Math.max(maxX, n.x + n.w);
-    maxY = Math.max(maxY, n.y + n.h);
+    minX = Math.min(minX, n.x); minY = Math.min(minY, n.y);
+    maxX = Math.max(maxX, n.x + n.w); maxY = Math.max(maxY, n.y + n.h);
   });
   const cw = container.offsetWidth;
-  const ch = container.offsetHeight - 40;
-  const scaleX = cw / (maxX - minX + 80);
-  const scaleY = ch / (maxY - minY + 80);
-  scale = Math.min(Math.min(scaleX, scaleY), 1.2);
-  panX  = (cw  - (maxX - minX) * scale) / 2 - minX * scale;
-  panY  = (ch  - (maxY - minY) * scale) / 2 - minY * scale;
+  const ch = container.offsetHeight;
+  scale = Math.min(Math.min(cw / (maxX - minX + 80), ch / (maxY - minY + 80)), 1.2);
+  panX  = (cw - (maxX - minX) * scale) / 2 - minX * scale;
+  panY  = (ch - (maxY - minY) * scale) / 2 - minY * scale;
   applyTransform();
 }
 
@@ -848,12 +1036,11 @@ function fitView() {
 //  Minimap
 // ============================================================
 function renderMinimap() {
-  const mm   = document.getElementById('minimap');
-  const cvs  = document.getElementById('minimap-canvas');
-  const ctx  = cvs.getContext('2d');
+  const mm  = document.getElementById('minimap');
+  const cvs = document.getElementById('minimap-canvas');
+  const ctx = cvs.getContext('2d');
   cvs.width  = mm.offsetWidth;
   cvs.height = mm.offsetHeight;
-
   if (!Object.keys(nodes).length) return;
 
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -869,45 +1056,72 @@ function renderMinimap() {
   ctx.clearRect(0, 0, cvs.width, cvs.height);
   ctx.fillStyle = 'rgba(78,201,176,0.5)';
   Object.values(nodes).forEach(n => {
-    ctx.fillRect(
-      n.x * scaleM + offX,
-      n.y * scaleM + offY,
-      Math.max(n.w * scaleM, 3),
-      Math.max(n.h * scaleM, 3)
-    );
+    ctx.fillRect(n.x * scaleM + offX, n.y * scaleM + offY,
+      Math.max(n.w * scaleM, 3), Math.max(n.h * scaleM, 3));
   });
 
-  // Viewport indicator
-  const cont = document.getElementById('canvas-container');
   const vp = document.getElementById('minimap-viewport');
-  const cw = cont.offsetWidth, ch = cont.offsetHeight - 40;
-  const vpX = (-panX / scale) * scaleM + offX;
-  const vpY = (-panY / scale) * scaleM + offY;
-  const vpW = (cw / scale) * scaleM;
-  const vpH = (ch / scale) * scaleM;
-  vp.style.left   = vpX + 'px';
-  vp.style.top    = vpY + 'px';
-  vp.style.width  = vpW + 'px';
-  vp.style.height = vpH + 'px';
+  const cw = container.offsetWidth, ch = container.offsetHeight;
+  vp.style.left   = ((-panX / scale) * scaleM + offX) + 'px';
+  vp.style.top    = ((-panY / scale) * scaleM + offY) + 'px';
+  vp.style.width  = ((cw / scale) * scaleM) + 'px';
+  vp.style.height = ((ch / scale) * scaleM) + 'px';
 }
 
 // ============================================================
-//  Toolbar buttons
+//  Info bar (UI-11)
 // ============================================================
-function updateInfoBar(count) {
-  const showing = `${count} class${count === 1 ? '' : 'es'}`;
-  const total = totalCount > allEntries.length
-    ? ` — type to search ${totalCount.toLocaleString()} total`
-    : totalCount > VIEW_LIMIT && !filterRegex
-      ? ` of ${totalCount.toLocaleString()} — type to search`
-      : '';
-  document.getElementById('info-bar').textContent = showing + total;
+function updateInfoBar(visible, matched, total) {
+  let text = `${visible} class${visible === 1 ? '' : 'es'}`;
+  if (filterRegex && matched < visible) {
+    text += ` (${matched} matched + ${visible - matched} neighbors)`;
+  }
+  if (total > allEntries.length) {
+    text += ` — searching ${total.toLocaleString()} total`;
+  } else if (total > VIEW_LIMIT && !filterRegex) {
+    text += ` of ${total.toLocaleString()} — type to search`;
+  }
+  document.getElementById('info-bar').textContent = text;
 }
 
+// ============================================================
+//  Toolbar
+// ============================================================
 document.getElementById('btn-fit').addEventListener('click', fitView);
 document.getElementById('btn-reset').addEventListener('click', () => {
   scale = 1; panX = 0; panY = 0; applyTransform();
 });
+
+// Expand all / Collapse all
+document.getElementById('btn-expand-all').addEventListener('click', () => {
+  Object.keys(nodes).forEach(name => {
+    collapsedNodes.delete(name);
+    const n = nodes[name];
+    const body = n.el.querySelector('.node-body');
+    const btn  = n.el.querySelector('.node-collapse-btn');
+    if (body) body.classList.add('expanded');
+    if (btn)  { btn.textContent = '▼'; btn.title = 'Collapse'; }
+  });
+  requestAnimationFrame(() => {
+    Object.values(nodes).forEach(n => { n.h = n.el.offsetHeight; });
+    redrawEdges(); renderMinimap();
+  });
+});
+document.getElementById('btn-collapse-all').addEventListener('click', () => {
+  Object.keys(nodes).forEach(name => {
+    collapsedNodes.add(name);
+    const n = nodes[name];
+    const body = n.el.querySelector('.node-body');
+    const btn  = n.el.querySelector('.node-collapse-btn');
+    if (body) body.classList.remove('expanded');
+    if (btn)  { btn.textContent = '▶'; btn.title = 'Expand'; }
+  });
+  requestAnimationFrame(() => {
+    Object.values(nodes).forEach(n => { n.h = n.el.offsetHeight; });
+    redrawEdges(); renderMinimap();
+  });
+});
+
 let _filterDebounceTimer = null;
 document.getElementById('filter-input').addEventListener('input', e => {
   const val = e.target.value;
@@ -915,35 +1129,32 @@ document.getElementById('filter-input').addEventListener('input', e => {
   _filterDebounceTimer = setTimeout(() => applyFilter(val), 300);
 });
 
-document.getElementById('btn-toggle-private').addEventListener('click', function() {
-  showPrivate = !showPrivate;
-  this.classList.toggle('active', !showPrivate);
-  this.textContent = showPrivate ? 'Show Private' : 'Hide Private';
-  renderAll();
-});
-
 document.getElementById('btn-layout-tb').addEventListener('click', function() {
   layoutDir = 'TB';
   document.getElementById('btn-layout-lr').classList.remove('active');
   this.classList.add('active');
+  Object.keys(nodePositions).forEach(k => delete nodePositions[k]); // reset manual positions
   renderAll();
 });
 document.getElementById('btn-layout-lr').addEventListener('click', function() {
   layoutDir = 'LR';
   document.getElementById('btn-layout-tb').classList.remove('active');
   this.classList.add('active');
+  Object.keys(nodePositions).forEach(k => delete nodePositions[k]);
   renderAll();
 });
 
 // Keyboard shortcuts
 window.addEventListener('keydown', e => {
+  if (document.activeElement === document.getElementById('filter-input')) return;
   if (e.key === 'f' || e.key === 'F') fitView();
   if (e.key === 'Escape') {
     selectedClass = null;
-    Object.values(nodes).forEach(n => {
-      n.el.classList.remove('selected', 'highlight-up', 'highlight-down', 'dimmed');
-    });
+    Object.values(nodes).forEach(n =>
+      n.el.classList.remove('selected','highlight-up','highlight-down','dimmed'));
     document.getElementById('detail-panel').classList.remove('visible');
+    document.getElementById('filter-input').value = '';
+    applyFilter('');
   }
 });
 </script>

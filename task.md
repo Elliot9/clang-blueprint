@@ -102,27 +102,27 @@
 ## Phase 4：WebView UI 互動升級（Post-MVP）
 
 ### Sprint 4.1 — 節點可拖拉
-- [ ] **UI-01** 每個 class 節點可以用滑鼠拖拉到任意位置（目前只有整體畫布 pan）
-- [ ] **UI-02** 拖拉後記住位置，filter 清空時不重置
+- [x] **UI-01** 每個 class 節點可以用滑鼠拖拉到任意位置（目前只有整體畫布 pan）
+- [x] **UI-02** 拖拉後記住位置，filter 清空時不重置
 
 ### Sprint 4.2 — 節點內容折疊/展開
-- [ ] **UI-03** 節點預設折疊（只顯示 className + responsibility）
-- [ ] **UI-04** 點擊節點標題列展開：顯示 attributes（成員變數）
-- [ ] **UI-05** 點擊展開：顯示 interfaces（方法），每個方法顯示完整 return type + 參數型別
-- [ ] **UI-06** 折疊/展開按鈕（▶/▼），展開狀態自動調整節點高度並重繪 edges
+- [x] **UI-03** 節點預設折疊（只顯示 className + responsibility）
+- [x] **UI-04** 點擊節點標題列展開：顯示 attributes（成員變數）
+- [x] **UI-05** 點擊展開：顯示 interfaces（方法），每個方法顯示完整 return type + 參數型別
+- [x] **UI-06** 折疊/展開按鈕（▶/▼），展開狀態自動調整節點高度並重繪 edges
 
 ### Sprint 4.3 — 方法詳細資訊
-- [ ] **UI-07** hover 方法名稱顯示 tooltip：完整 signature（含 template params、const/virtual）
+- [x] **UI-07** hover 方法名稱顯示 tooltip：完整 signature（含 template params、const/virtual）
 - [ ] **UI-08** 點擊方法名稱 → 跳轉到該方法的原始碼行號
 
 ### Sprint 4.4 — Edge 互動
-- [ ] **UI-09** hover edge 顯示 tooltip：dependency 類型 + cardinality
-- [ ] **UI-10** 點擊 edge 高亮兩端節點
+- [x] **UI-09** hover edge 顯示 tooltip：dependency 類型 + cardinality
+- [x] **UI-10** 點擊 edge 高亮兩端節點
 
 ### Sprint 4.5 — 搜尋與 UX 強化
-- [ ] **UI-11** 搜尋結果顯示 match count（例如「找到 3 個類別 + 12 個鄰居」）
+- [x] **UI-11** 搜尋結果顯示 match count（例如「找到 3 個類別 + 12 個鄰居」）
 - [ ] **UI-12** 支援 namespace 過濾（例如 `ns:storage`）
-- [ ] **UI-13** 右鍵選單加入「只顯示此類別的 neighborhood」選項
+- [x] **UI-13** 右鍵選單加入「只顯示此類別的 neighborhood」選項
 - [ ] **UI-14** 節點顏色依 namespace 區分
 - [ ] **UI-15** 匯出目前可見圖表為 SVG 或複製 Mermaid 語法
 
