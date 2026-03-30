@@ -611,6 +611,12 @@ function getVisibleEntries() {
 
 function applyFilter(pattern) {
   filterRegex = pattern || null;
+  // For large indices, delegate search to the extension (server-side filter)
+  if (pattern && totalCount > 5000) {
+    vscode.postMessage({ type: 'search', pattern });
+    // renderAll() will be called when loadEntries response arrives
+    return;
+  }
   renderAll();
 }
 

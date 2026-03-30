@@ -43,6 +43,7 @@ type ExtensionMessage =
 type WebviewMessage =
   | { type: "nodeClick"; fileLocation: string; lineNumber: number; className: string }
   | { type: "ready" }
+  | { type: "search"; pattern: string }
   | { type: "error"; message: string };
 
 // ---------------------------------------------------------------------------
@@ -155,6 +156,10 @@ function createOrShowPanel(context: vscode.ExtensionContext): vscode.WebviewPane
           handleNodeClick(message.fileLocation, message.lineNumber, message.className);
           break;
 
+        case "search":
+          handleSearch(diagramPanel!, message.pattern, context);
+          break;
+
         case "error":
           vscode.window.showErrorMessage(`Blueprint webview error: ${message.message}`);
           break;
@@ -189,15 +194,16 @@ function sendEntriesToWebview(
   const maxClasses = getConfig<number>("maxClassesInDiagram") ?? 100;
   const layoutDirection = getConfig<"TB" | "LR" | "BT" | "RL">("layoutDirection") ?? "TB";
 
-  // For large codebases send all entries; webview applies its own view limit.
-  // For very large sets (>5000) send only up to maxClasses to avoid postMessage
-  // size limits — the webview filter/search handles focused navigation.
+  // For large codebases send a limited initial set; search queries are handled
+  // server-side via the "search" webview message → handleSearch().
   const sendEntries = entries.length > 5000 ? entries.slice(0, maxClasses) : entries;
   const msg: ExtensionMessage = {
     type: "loadEntries",
     entries: sendEntries,
     totalCount: entries.length,
   };
+  // Store full entries for search
+  cachedEntries = entries;
   panel.webview.postMessage(msg);
 
   // Also send layout direction
@@ -206,8 +212,6 @@ function sendEntriesToWebview(
     direction: layoutDirection,
   } as ExtensionMessage);
 
-  cachedEntries = entries; // T-34: keep local copy for cursor lookup
-
   if (entries.length === 0) {
     vscode.window.showWarningMessage(
       `Clang Blueprint: No entries found at ${indexPath}. Run "Blueprint: Rebuild Index" first.`
@@ -215,6 +219,40 @@ function sendEntriesToWebview(
   } else {
     panel.title = `Blueprint: Class Diagram (${entries.length} classes)`;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Server-side search for large codebases
+// ---------------------------------------------------------------------------
+
+function handleSearch(
+  panel: vscode.WebviewPanel,
+  pattern: string,
+  _context: vscode.ExtensionContext
+): void {
+  if (!pattern || !cachedEntries.length) { return; }
+  let matched: BlueprintEntry[];
+  try {
+    const re = new RegExp(pattern, "i");
+    matched = cachedEntries.filter((e) => re.test(e.className));
+  } catch {
+    return;
+  }
+  // Include 1-hop neighbors
+  const neighborNames = new Set<string>();
+  matched.forEach((e) => {
+    e.dependencies.forEach((d) => neighborNames.add(d.target));
+    e.baseClasses.forEach((b) => neighborNames.add(b));
+  });
+  const matchedNames = new Set(matched.map((e) => e.className));
+  const neighbors = cachedEntries.filter(
+    (e) => !matchedNames.has(e.className) && neighborNames.has(e.className)
+  );
+  panel.webview.postMessage({
+    type: "loadEntries",
+    entries: [...matched, ...neighbors],
+    totalCount: cachedEntries.length,
+  } as ExtensionMessage);
 }
 
 // ---------------------------------------------------------------------------
