@@ -272,14 +272,15 @@
     }
     .method-jump-icon:hover { color: #4fc3f7; background: #2a2d2e; }
 
-    /* P9-03: Trace Mode */
+    /* P9-03 / P11-03: Trace Mode */
     .class-node.trace-source { box-shadow: 0 0 0 2px #4fc3f7 !important; }
     .class-node.trace-target { box-shadow: 0 0 0 2px #ffd700 !important; }
     .class-node.trace-dimmed { opacity: 0.18; filter: grayscale(70%); pointer-events: none; }
+    /* P11-03: badge colours by kind */
     .trace-seq-badge {
       position: absolute;
       top: -9px; right: -9px;
-      background: #ffd700;
+      background: #ffd700;   /* default: field-read = gold */
       color: #1e1e1e;
       border-radius: 50%;
       width: 18px; height: 18px;
@@ -291,6 +292,9 @@
       z-index: 20;
       pointer-events: none;
     }
+    .trace-seq-badge.kind-call  { background: #4fc3f7; color: #1e1e1e; }   /* blue  */
+    .trace-seq-badge.kind-write { background: #ff8c00; color: #fff; }       /* orange */
+    .trace-seq-badge.kind-read  { background: #6dbf67; color: #1e1e1e; }   /* green */
     .trace-method-active { background: rgba(79,195,247,0.18) !important; border-radius: 3px; }
     .trace-member-hit {
       color: #ffd700 !important;
@@ -298,6 +302,78 @@
       border-radius: 2px;
     }
     .node-method-name.trace-active-method { color: #4fc3f7 !important; }
+
+    /* P11-02: Trace Panel */
+    #trace-panel {
+      display: none;
+      position: absolute;
+      top: 48px; right: 8px;
+      width: 280px;
+      max-height: calc(100vh - 120px);
+      overflow-y: auto;
+      background: #1e1e2e;
+      border: 1px solid #3c3c3c;
+      border-radius: 6px;
+      z-index: 30;
+      font-size: 11px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+    }
+    #trace-panel.visible { display: flex; flex-direction: column; }
+    #trace-panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 10px;
+      border-bottom: 1px solid #3c3c3c;
+      font-weight: 600;
+      color: #ccc;
+      flex-shrink: 0;
+    }
+    #trace-panel-title { font-size: 11px; color: #4fc3f7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #trace-panel-close { cursor: pointer; color: #888; font-size: 14px; line-height: 1; }
+    #trace-panel-close:hover { color: #fff; }
+    #trace-panel-list { padding: 4px 0; }
+    .trace-step {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      padding: 4px 10px;
+      cursor: pointer;
+      border-left: 3px solid transparent;
+    }
+    .trace-step:hover { background: rgba(255,255,255,0.05); }
+    .trace-step.active-step { background: rgba(79,195,247,0.1); border-left-color: #4fc3f7; }
+    .step-num {
+      flex-shrink: 0;
+      width: 18px; height: 18px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px; font-weight: bold; color: #1e1e1e;
+      background: #ffd700;
+    }
+    .step-num.kind-call  { background: #4fc3f7; }
+    .step-num.kind-write { background: #ff8c00; color: #fff; }
+    .step-num.kind-read  { background: #6dbf67; }
+    .step-body { flex: 1; min-width: 0; }
+    .step-class { color: #9cdcfe; }
+    .step-sep   { color: #555; }
+    .step-member { color: #dcdcaa; }
+    .step-kind {
+      font-size: 9px;
+      padding: 0 4px;
+      border-radius: 3px;
+      margin-left: 4px;
+    }
+    .step-kind.kind-call  { background: rgba(79,195,247,0.2);  color: #4fc3f7; }
+    .step-kind.kind-write { background: rgba(255,140,0,0.2);   color: #ff8c00; }
+    .step-kind.kind-read  { background: rgba(109,191,103,0.2); color: #6dbf67; }
+    .trace-legend {
+      display: flex; gap: 8px; padding: 4px 10px 6px;
+      border-top: 1px solid #2a2a2a;
+      flex-shrink: 0;
+    }
+    .legend-item { display: flex; align-items: center; gap: 3px; font-size: 9px; color: #888; }
+    .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
 
     .node-methods {
       padding: 2px 8px 4px;
@@ -564,6 +640,20 @@
   <div class="ctx-item" id="ctx-downstream">Highlight Downstream</div>
   <div class="ctx-item sep" id="ctx-explore-here">Start Exploring Here</div>
   <div class="ctx-item" id="ctx-clear">Clear Highlight</div>
+</div>
+
+<!-- P11-02: Trace Panel -->
+<div id="trace-panel">
+  <div id="trace-panel-header">
+    <span id="trace-panel-title">Trace</span>
+    <span id="trace-panel-close" title="Close (Esc)">✕</span>
+  </div>
+  <div id="trace-panel-list"></div>
+  <div class="trace-legend">
+    <div class="legend-item"><div class="legend-dot" style="background:#4fc3f7"></div>call</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#6dbf67"></div>read</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#ff8c00"></div>write</div>
+  </div>
 </div>
 
 <!-- Detail panel -->
@@ -1429,6 +1519,11 @@ function _buildAdjacency(className) {
 //  P9-03: Method Trace Mode
 // ============================================================
 
+const tracePanel     = document.getElementById('trace-panel');
+const tracePanelList = document.getElementById('trace-panel-list');
+const tracePanelTitle= document.getElementById('trace-panel-title');
+document.getElementById('trace-panel-close').addEventListener('click', () => exitTraceMode());
+
 function exitTraceMode() {
   if (!traceMode) return;
   if (traceMode.rowEl) traceMode.rowEl.classList.remove('trace-method-active');
@@ -1438,12 +1533,21 @@ function exitTraceMode() {
     n.el.querySelectorAll('.trace-member-hit').forEach(el =>
       el.classList.remove('trace-member-hit'));
   });
+  tracePanel.classList.remove('visible');
+  tracePanelList.innerHTML = '';
   traceMode = null;
+}
+
+// P11-03: dominant kind for a group of members (for badge colour)
+function _dominantKind(members) {
+  if (!members || members.length === 0) return 'call';
+  if (members.some(m => m.kind === 'call')) return 'call';
+  if (members.some(m => m.isWrite)) return 'write';
+  return 'read';
 }
 
 function enterTraceMode(entry, meta, rowEl) {
   const sig = meta ? meta.signature : null;
-  // Toggle off if clicking the same method again
   if (traceMode && traceMode.className === entry.className && traceMode.sig === sig) {
     exitTraceMode();
     return;
@@ -1451,47 +1555,53 @@ function enterTraceMode(entry, meta, rowEl) {
   exitTraceMode();
   if (!meta) return;
 
-  const callSeq = meta.callSequence || [];
+  const callSeq  = meta.callSequence || [];
   const usedTypes = meta.usedTypes || [];
 
-  // Build ordered sequence of target classes
+  // Build ordered per-class sequence from callSequence; fallback to usedTypes
+  // sequence item: {seqNum, className, members:[{member,kind,isWrite}], dominantKind}
   let sequence = [];
   if (callSeq.length > 0) {
-    const classOrder = new Map();
+    const classOrder   = new Map();
     const classMembers = new Map();
-    callSeq.forEach(({targetClass, member, kind}) => {
-      const shortName = targetClass.split('::').pop();
+    callSeq.forEach(item => {
+      const shortName = item.targetClass.split('::').pop();
       if (!classOrder.has(shortName)) {
         classOrder.set(shortName, classOrder.size + 1);
         classMembers.set(shortName, []);
       }
-      classMembers.get(shortName).push({member, kind});
+      classMembers.get(shortName).push(item);
     });
-    classOrder.forEach((seqNum, cn) =>
-      sequence.push({seqNum, className: cn, members: classMembers.get(cn) || []}));
+    classOrder.forEach((seqNum, cn) => {
+      const mems = classMembers.get(cn) || [];
+      sequence.push({seqNum, className: cn, members: mems, dominantKind: _dominantKind(mems)});
+    });
   } else if (usedTypes.length > 0) {
     usedTypes.forEach((t, i) =>
-      sequence.push({seqNum: i + 1, className: t.split('::').pop(), members: []}));
+      sequence.push({seqNum: i + 1, className: t.split('::').pop(), members: [], dominantKind: 'call'}));
   }
 
   if (sequence.length === 0) return;
 
   traceMode = {className: entry.className, sig, rowEl};
 
-  // Mark source node + active method row
+  // Source node + active method row
   const srcNode = nodes[entry.className];
   if (srcNode) srcNode.el.classList.add('trace-source');
   if (rowEl) rowEl.classList.add('trace-method-active');
 
+  // Apply classes + badges to canvas nodes
   Object.entries(nodes).forEach(([cn, n]) => {
     if (cn === entry.className) return;
     const seqEntry = sequence.find(s => s.className === cn);
     if (seqEntry) {
       n.el.classList.add('trace-target');
+      // P11-03: coloured badge
       const badge = document.createElement('div');
-      badge.className = 'trace-seq-badge';
+      badge.className = `trace-seq-badge kind-${seqEntry.dominantKind}`;
       badge.textContent = seqEntry.seqNum;
       n.el.appendChild(badge);
+      // Highlight accessed members
       seqEntry.members.forEach(({member}) => {
         n.el.querySelectorAll('[data-member]').forEach(el => {
           if (el.dataset.member === member) el.classList.add('trace-member-hit');
@@ -1501,6 +1611,40 @@ function enterTraceMode(entry, meta, rowEl) {
       n.el.classList.add('trace-dimmed');
     }
   });
+
+  // P11-02: build Trace Panel
+  tracePanelTitle.textContent = `${entry.className}::${trimSignature(sig)}`;
+  tracePanelList.innerHTML = '';
+
+  // Full flat list from callSeq (all steps, not grouped by class)
+  const steps = callSeq.length > 0 ? callSeq : usedTypes.map((t, i) => ({
+    order: i + 1, targetClass: t.split('::').pop(), member: '', kind: 'call', isWrite: false,
+  }));
+
+  steps.forEach(step => {
+    const kindLabel = step.kind === 'call' ? 'call'
+                    : step.isWrite          ? 'write'
+                    :                         'read';
+    const row = document.createElement('div');
+    row.className = 'trace-step';
+    row.innerHTML = `
+      <div class="step-num kind-${kindLabel}">${step.order}</div>
+      <div class="step-body">
+        <span class="step-class">${step.targetClass.split('::').pop()}</span>
+        ${step.member ? `<span class="step-sep">::</span><span class="step-member">${step.member}</span>` : ''}
+        <span class="step-kind kind-${kindLabel}">${kindLabel}</span>
+      </div>`;
+    row.addEventListener('click', () => {
+      // Focus the target node on canvas
+      tracePanelList.querySelectorAll('.trace-step').forEach(r => r.classList.remove('active-step'));
+      row.classList.add('active-step');
+      const cn = step.targetClass.split('::').pop();
+      if (nodes[cn]) { centerOn(cn); }
+    });
+    tracePanelList.appendChild(row);
+  });
+
+  tracePanel.classList.add('visible');
 }
 
 function selectNode(className) {

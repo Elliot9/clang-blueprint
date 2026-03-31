@@ -625,46 +625,68 @@ class ASTVisitor:
         seen: list[tuple[str, str]] = []
         result: list[dict] = []
 
-        def _walk(c: Any) -> None:
+        # P11-01: cursor kinds that indicate the MEMBER_REF_EXPR is being written to
+        _WRITE_PARENT_KINDS = frozenset({
+            CursorKind.BINARY_OPERATOR,
+            CursorKind.COMPOUND_ASSIGNMENT_OPERATOR,
+        })
+        _UNARY_WRITE_OPS = frozenset({
+            CursorKind.UNARY_OPERATOR,  # ++/-- on the member
+        })
+
+        def _is_write(c: Any, parent: Any) -> bool:
+            """Heuristic: is this MEMBER_REF_EXPR the target of a write?"""
+            if parent is None:
+                return False
+            if parent.kind in _UNARY_WRITE_OPS:
+                return True
+            if parent.kind in _WRITE_PARENT_KINDS:
+                # Write only if this node is the FIRST child (LHS)
+                try:
+                    children = list(parent.get_children())
+                    if children and children[0].location == c.location:
+                        return True
+                except Exception:
+                    pass
+            return False
+
+        def _walk(c: Any, parent: Any = None) -> None:
             if c.kind == CursorKind.MEMBER_REF_EXPR:
                 try:
                     ref = c.referenced
                     if not ref:
-                        return
-                    parent_cls = ref.semantic_parent
-                    if not parent_cls:
-                        return
-                    cls_name = parent_cls.spelling
-                    if not cls_name or cls_name == self_class_name:
-                        return  # skip self-accesses
-                    if _is_trivial_type(cls_name):
-                        return
-                    # Restrict to project-owned classes
-                    if parent_cls.location.file:
-                        if not _is_definition_in_project(
-                            os.path.abspath(parent_cls.location.file.name),
-                            self.project_root,
-                        ):
-                            return
-                    member = ref.spelling or ""
-                    key = (cls_name, member)
-                    if key not in seen:
-                        seen.append(key)
-                        kind = (
-                            "field"
-                            if ref.kind == CursorKind.FIELD_DECL
-                            else "call"
-                        )
-                        result.append({
-                            "order":       len(result) + 1,
-                            "targetClass": cls_name,
-                            "member":      member,
-                            "kind":        kind,
-                        })
+                        pass
+                    else:
+                        parent_cls = ref.semantic_parent
+                        cls_name = parent_cls.spelling if parent_cls else ""
+                        if cls_name and cls_name != self_class_name and not _is_trivial_type(cls_name):
+                            # Restrict to project-owned classes
+                            ok = True
+                            if parent_cls and parent_cls.location.file:
+                                ok = _is_definition_in_project(
+                                    os.path.abspath(parent_cls.location.file.name),
+                                    self.project_root,
+                                )
+                            if ok:
+                                member = ref.spelling or ""
+                                key = (cls_name, member)
+                                if key not in seen:
+                                    seen.append(key)
+                                    is_field = ref.kind == CursorKind.FIELD_DECL
+                                    kind = "field" if is_field else "call"
+                                    # P11-01: detect write access
+                                    is_write = is_field and _is_write(c, parent)
+                                    result.append({
+                                        "order":       len(result) + 1,
+                                        "targetClass": cls_name,
+                                        "member":      member,
+                                        "kind":        kind,
+                                        "isWrite":     is_write,
+                                    })
                 except Exception:
                     pass
             for child in c.get_children():
-                _walk(child)
+                _walk(child, c)
 
         _walk(method_cursor)
         return result

@@ -226,6 +226,14 @@
 
 ---
 
+## Phase 11：Trace Mode 完整 Call Stack 面板
+
+- [x] **P11-01** `ast_parser.py`：`_scan_method_accesses()` 偵測 field 存取是 read 還是 write（檢查 `MEMBER_REF_EXPR` 的 parent 是否為 `BINARY_OPERATOR` / `COMPOUND_ASSIGNMENT_OPERATOR` / `UNARY_OPERATOR` 的 LHS），在 `callSequence` 每個 entry 加入 `isWrite: bool`
+- [x] **P11-02** Webview：Trace Mode 啟動時，在畫布右側顯示 **Trace Panel**，以有序清單呈現完整 call sequence（step 編號、targetClass、member、kind、read/write 標記）；點擊 step 可 focus 到對應節點
+- [x] **P11-03** Webview：numbered badge 依存取類型上色（call = 藍、read = 綠、write = 橘）；Trace Panel 同色標示
+
+---
+
 ## 優先順序（MVP 最小可行產品）
 
 > 完成以下項目即可示範核心價值：
