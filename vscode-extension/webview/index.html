@@ -356,6 +356,8 @@
     .step-num.kind-read  { background: #6dbf67; }
     .step-body { flex: 1; min-width: 0; }
     .step-class { color: #9cdcfe; }
+    .step-class.step-self { color: #4ec9b0; font-style: italic; } /* own-class access */
+    .trace-step-self { border-left-color: #4ec9b0; }
     .step-sep   { color: #555; }
     .step-member { color: #dcdcaa; }
     .step-kind {
@@ -1808,12 +1810,13 @@ function enterTraceMode(entry, meta, rowEl) {
     const classOrder   = new Map();
     const classMembers = new Map();
     callSeq.forEach(item => {
-      const shortName = item.targetClass.split('::').pop();
-      if (!classOrder.has(shortName)) {
-        classOrder.set(shortName, classOrder.size + 1);
-        classMembers.set(shortName, []);
+      // _self_ = own-class fields; others use short name for node matching
+      const key = item.targetClass === '_self_' ? '_self_' : item.targetClass.split('::').pop();
+      if (!classOrder.has(key)) {
+        classOrder.set(key, classOrder.size + 1);
+        classMembers.set(key, []);
       }
-      classMembers.get(shortName).push(item);
+      classMembers.get(key).push(item);
     });
     classOrder.forEach((seqNum, cn) => {
       const mems = classMembers.get(cn) || [];
@@ -1835,16 +1838,25 @@ function enterTraceMode(entry, meta, rowEl) {
 
   // Apply classes + badges to canvas nodes
   Object.entries(nodes).forEach(([cn, n]) => {
-    if (cn === entry.className) return;
+    if (cn === entry.className) {
+      // Highlight own-class field accesses on the source node itself
+      const selfSeq = sequence.find(s => s.className === '_self_');
+      if (selfSeq) {
+        selfSeq.members.forEach(({member}) => {
+          n.el.querySelectorAll('[data-member]').forEach(el => {
+            if (el.dataset.member === member) el.classList.add('trace-member-hit');
+          });
+        });
+      }
+      return;
+    }
     const seqEntry = sequence.find(s => s.className === cn);
     if (seqEntry) {
       n.el.classList.add('trace-target');
-      // P11-03: coloured badge
       const badge = document.createElement('div');
       badge.className = `trace-seq-badge kind-${seqEntry.dominantKind}`;
       badge.textContent = seqEntry.seqNum;
       n.el.appendChild(badge);
-      // Highlight accessed members
       seqEntry.members.forEach(({member}) => {
         n.el.querySelectorAll('[data-member]').forEach(el => {
           if (el.dataset.member === member) el.classList.add('trace-member-hit');
@@ -1855,34 +1867,40 @@ function enterTraceMode(entry, meta, rowEl) {
     }
   });
 
-  // P11-02: build Trace Panel
+  // Build Trace Panel — all steps in order, including _self_ field accesses
   tracePanelTitle.textContent = `${entry.className}::${trimSignature(sig)}`;
   tracePanelList.innerHTML = '';
 
-  // Full flat list from callSeq (all steps, not grouped by class)
   const steps = callSeq.length > 0 ? callSeq : usedTypes.map((t, i) => ({
     order: i + 1, targetClass: t.split('::').pop(), member: '', kind: 'call', isWrite: false,
   }));
 
   steps.forEach(step => {
+    const isSelf = step.targetClass === '_self_';
     const kindLabel = step.kind === 'call' ? 'call'
                     : step.isWrite          ? 'write'
                     :                         'read';
+    const displayClass = isSelf
+      ? `<span class="step-class step-self">${entry.className}</span>`
+      : `<span class="step-class">${step.targetClass.split('::').pop()}</span>`;
     const row = document.createElement('div');
-    row.className = 'trace-step';
+    row.className = 'trace-step' + (isSelf ? ' trace-step-self' : '');
     row.innerHTML = `
       <div class="step-num kind-${kindLabel}">${step.order}</div>
       <div class="step-body">
-        <span class="step-class">${step.targetClass.split('::').pop()}</span>
+        ${displayClass}
         ${step.member ? `<span class="step-sep">::</span><span class="step-member">${step.member}</span>` : ''}
         <span class="step-kind kind-${kindLabel}">${kindLabel}</span>
       </div>`;
     row.addEventListener('click', () => {
-      // Focus the target node on canvas
       tracePanelList.querySelectorAll('.trace-step').forEach(r => r.classList.remove('active-step'));
       row.classList.add('active-step');
-      const cn = step.targetClass.split('::').pop();
-      if (nodes[cn]) { centerOn(cn); }
+      if (!isSelf) {
+        const cn = step.targetClass.split('::').pop();
+        if (nodes[cn]) centerOn(cn);
+      } else if (srcNode) {
+        centerOn(entry.className);
+      }
     });
     tracePanelList.appendChild(row);
   });

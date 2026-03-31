@@ -616,14 +616,28 @@ class ASTVisitor:
         self_class_name: str,
     ) -> list[dict]:
         """
-        Walk a method body for MEMBER_REF_EXPR / CALL_EXPR to build an ordered
-        sequence of accesses to members of OTHER classes.
+        Walk a method body for MEMBER_REF_EXPR to build an ordered sequence of
+        member accesses.
 
-        Returns list of {order, targetClass, member, kind} dicts, deduplicated
-        by (targetClass, member) keeping the first occurrence.
+        Two categories are captured:
+        - Own-class field accesses  → targetClass="_self_", kind="field", isWrite=T/F
+        - External project-class accesses → targetClass=<name>, kind=field|call
+
+        Bug fix: use cursor.get_definition() so that methods defined in a .cpp
+        file (header-only declarations have no body) are correctly walked.
+
+        Returns list of {order, targetClass, member, kind, isWrite} dicts,
+        deduplicated by (targetClass, member) keeping first occurrence.
         """
+        # Resolve to the definition cursor so we get the actual body
+        defn = method_cursor.get_definition()
+        body_cursor = defn if (defn and defn.location and defn.location.file) else method_cursor
+
         seen: list[tuple[str, str]] = []
         result: list[dict] = []
+
+        # Short (unqualified) name used for self-detection
+        self_short = self_class_name.split("::")[-1]
 
         # P11-01: cursor kinds that indicate the MEMBER_REF_EXPR is being written to
         _WRITE_PARENT_KINDS = frozenset({
@@ -641,7 +655,6 @@ class ASTVisitor:
             if parent.kind in _UNARY_WRITE_OPS:
                 return True
             if parent.kind in _WRITE_PARENT_KINDS:
-                # Write only if this node is the FIRST child (LHS)
                 try:
                     children = list(parent.get_children())
                     if children and children[0].location == c.location:
@@ -650,17 +663,37 @@ class ASTVisitor:
                     pass
             return False
 
+        def _is_self(cls_name: str) -> bool:
+            """True when cls_name refers to the class whose method we're scanning."""
+            short = cls_name.split("::")[-1]
+            return short == self_short or cls_name == self_class_name
+
         def _walk(c: Any, parent: Any = None) -> None:
             if c.kind == CursorKind.MEMBER_REF_EXPR:
                 try:
                     ref = c.referenced
-                    if not ref:
-                        pass
-                    else:
+                    if ref:
                         parent_cls = ref.semantic_parent
                         cls_name = parent_cls.spelling if parent_cls else ""
-                        if cls_name and cls_name != self_class_name and not _is_trivial_type(cls_name):
-                            # Restrict to project-owned classes
+                        if not cls_name or _is_trivial_type(cls_name):
+                            pass  # skip builtins / STL
+                        elif _is_self(cls_name):
+                            # Own-class field access (not method calls on self)
+                            if ref.kind == CursorKind.FIELD_DECL:
+                                member = ref.spelling or ""
+                                key = ("_self_", member)
+                                if key not in seen:
+                                    seen.append(key)
+                                    is_write = _is_write(c, parent)
+                                    result.append({
+                                        "order":       len(result) + 1,
+                                        "targetClass": "_self_",
+                                        "member":      member,
+                                        "kind":        "field",
+                                        "isWrite":     is_write,
+                                    })
+                        else:
+                            # External project class — restrict to project-owned
                             ok = True
                             if parent_cls and parent_cls.location.file:
                                 ok = _is_definition_in_project(
@@ -674,7 +707,6 @@ class ASTVisitor:
                                     seen.append(key)
                                     is_field = ref.kind == CursorKind.FIELD_DECL
                                     kind = "field" if is_field else "call"
-                                    # P11-01: detect write access
                                     is_write = is_field and _is_write(c, parent)
                                     result.append({
                                         "order":       len(result) + 1,
@@ -688,7 +720,7 @@ class ASTVisitor:
             for child in c.get_children():
                 _walk(child, c)
 
-        _walk(method_cursor)
+        _walk(body_cursor)
         return result
 
     # P8-05/06/07: index free (non-member) functions
@@ -1103,8 +1135,8 @@ def parse_files(
                 args=args,
                 options=(
                     cindex.TranslationUnit.PARSE_DETAILED_PROCESSING_RECORD
-                    | cindex.TranslationUnit.PARSE_SKIP_FUNCTION_BODIES
-                    # Don't skip function bodies for dependency detection
+                    # P12-01: PARSE_SKIP_FUNCTION_BODIES removed so MEMBER_REF_EXPR
+                    # is available in method bodies for callSequence / trace analysis
                 ),
             )
         except TranslationUnitLoadError as e:
