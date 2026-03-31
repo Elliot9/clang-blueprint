@@ -494,6 +494,7 @@
       cursor: pointer;
     }
     .edge-line:hover { stroke-width: 3; }
+    /* No SVG markers — arrowheads are explicit <polygon> elements */
 
     .edge-hit {
       stroke: transparent;
@@ -608,38 +609,6 @@
   </div>
   <div id="info-bar">0 classes</div>
 </div>
-
-<!-- SVG marker defs MUST live outside the CSS-transformed canvas;
-     Chromium does not render SVG markers on transformed SVG elements.
-     These are referenced globally by #id from the edges-svg below. -->
-<svg id="svg-defs" width="0" height="0" style="position:absolute;overflow:hidden;">
-  <defs>
-    <!-- association / dependency -->
-    <marker id="arrow" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto">
-      <path d="M0,0 L0,8 L10,4 z" fill="#888"/>
-    </marker>
-    <!-- inheritance: hollow triangle, purple -->
-    <marker id="arrow-inherit" markerUnits="userSpaceOnUse" markerWidth="14" markerHeight="10" refX="14" refY="5" orient="auto">
-      <path d="M0,0 L0,10 L14,5 z" fill="#1e1e1e" stroke="#c586c0" stroke-width="1.5"/>
-    </marker>
-    <!-- composition SOURCE: filled teal diamond -->
-    <marker id="arrow-comp-start" markerUnits="userSpaceOnUse" markerWidth="14" markerHeight="10" refX="0" refY="5" orient="auto-start-reverse">
-      <polygon points="0,5 7,0 14,5 7,10" fill="#4ec9b0"/>
-    </marker>
-    <!-- composition TARGET: teal arrow -->
-    <marker id="arrow-comp" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto">
-      <path d="M0,0 L0,8 L10,4 z" fill="#4ec9b0"/>
-    </marker>
-    <!-- aggregation SOURCE: hollow diamond, blue -->
-    <marker id="arrow-agg-start" markerUnits="userSpaceOnUse" markerWidth="14" markerHeight="10" refX="0" refY="5" orient="auto-start-reverse">
-      <polygon points="0,5 7,0 14,5 7,10" fill="#1e1e1e" stroke="#9cdcfe" stroke-width="1.5"/>
-    </marker>
-    <!-- aggregation TARGET: blue arrow -->
-    <marker id="arrow-agg" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto">
-      <path d="M0,0 L0,8 L10,4 z" fill="#9cdcfe"/>
-    </marker>
-  </defs>
-</svg>
 
 <!-- Canvas -->
 <div id="canvas-container">
@@ -945,7 +914,7 @@ function renderAll() {
   Array.from(canvas.children).forEach(c => {
     if (c.id !== 'edges-svg') canvas.removeChild(c);
   });
-  while (svgEl.childNodes.length > 1) svgEl.removeChild(svgEl.lastChild);
+  while (svgEl.firstChild) svgEl.removeChild(svgEl.firstChild);
 
   nodes = {};
   edges = [];
@@ -1304,120 +1273,177 @@ function trimSignature(sig) {
 }
 
 // ============================================================
-//  Edges
+//  Edges — explicit polygon arrowheads (no SVG markers; avoids
+//  Chromium bug: markers don't render on CSS-transformed SVGs)
 // ============================================================
-const EDGE_MARKERS = {
-  inheritance: { start: null,                     end: 'url(#arrow-inherit)' },
-  composition: { start: 'url(#arrow-comp-start)', end: 'url(#arrow-comp)'   },
-  aggregation: { start: 'url(#arrow-agg-start)',  end: 'url(#arrow-agg)'    },
-  association: { start: null,                     end: 'url(#arrow)'        },
-  dependency:  { start: null,                     end: 'url(#arrow)'        },
+
+const EDGE_COLOR = {
+  inheritance: '#c586c0',
+  composition: '#4ec9b0',
+  aggregation: '#9cdcfe',
+  association: '#888',
+  dependency:  '#888',
 };
 
+// ── Geometry helpers ──────────────────────────────────────────
+function _norm(dx, dy) {
+  const L = Math.hypot(dx, dy);
+  return L < 0.001 ? [1, 0] : [dx / L, dy / L];
+}
+function _ptsStr(pts) {
+  return pts.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
+}
+function _arrowPts(tip, dir, L = 11, W = 7) {
+  const [dx, dy] = dir, px = -dy, py = dx;
+  return [tip,
+    [tip[0] - dx*L + px*W/2, tip[1] - dy*L + py*W/2],
+    [tip[0] - dx*L - px*W/2, tip[1] - dy*L - py*W/2]];
+}
+function _diamondPts(anchor, dir, L = 16, W = 9) {
+  const [dx, dy] = dir, px = -dy, py = dx;
+  return [anchor,
+    [anchor[0] + dx*(L/2) + px*(W/2), anchor[1] + dy*(L/2) + py*(W/2)],
+    [anchor[0] + dx*L,                anchor[1] + dy*L],
+    [anchor[0] + dx*(L/2) - px*(W/2), anchor[1] + dy*(L/2) - py*(W/2)]];
+}
+
+function _makePoly(pts, fill, stroke, strokeW) {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+  el.setAttribute('points', _ptsStr(pts));
+  el.setAttribute('fill', fill);
+  if (stroke) { el.setAttribute('stroke', stroke); el.setAttribute('stroke-width', strokeW || '1.5'); }
+  el.style.pointerEvents = 'none';
+  return el;
+}
+
+function _endHead(type, endPt, endDir) {
+  const color = EDGE_COLOR[type] || '#888';
+  const pts = _arrowPts(endPt, endDir);
+  if (type === 'inheritance') return _makePoly(pts, '#1e1e1e', color, '1.5');
+  return _makePoly(pts, color, null, null);
+}
+
+function _startHead(type, startPt, startDir) {
+  const color = EDGE_COLOR[type] || '#888';
+  const pts = _diamondPts(startPt, startDir);
+  if (type === 'composition') return _makePoly(pts, color, null, null);
+  if (type === 'aggregation') return _makePoly(pts, '#1e1e1e', color, '1.5');
+  return null;
+}
+
+// ── Bezier path computation ───────────────────────────────────
+function edgePathObj(from, to) {
+  const fcx = from.x + from.w / 2, fcy = from.y + from.h / 2;
+  const tcx = to.x   + to.w   / 2, tcy = to.y   + to.h   / 2;
+  const fromPorts = [
+    { x: fcx,            y: from.y,          side: 'top'    },
+    { x: fcx,            y: from.y + from.h, side: 'bottom' },
+    { x: from.x,         y: fcy,             side: 'left'   },
+    { x: from.x + from.w, y: fcy,            side: 'right'  },
+  ];
+  const toPorts = [
+    { x: tcx,           y: to.y,          side: 'top'    },
+    { x: tcx,           y: to.y + to.h,   side: 'bottom' },
+    { x: to.x,          y: tcy,           side: 'left'   },
+    { x: to.x + to.w,   y: tcy,           side: 'right'  },
+  ];
+  let best = null, bestDist = Infinity;
+  for (const fp of fromPorts) for (const tp of toPorts) {
+    const d = Math.hypot(fp.x - tp.x, fp.y - tp.y);
+    if (d < bestDist) { bestDist = d; best = { fp, tp }; }
+  }
+  const { fp, tp } = best;
+  const offset = Math.max(40, bestDist * 0.35);
+  const portDir = { top:[0,-1], bottom:[0,1], left:[-1,0], right:[1,0] };
+  const [fdx, fdy] = portDir[fp.side], [tdx, tdy] = portDir[tp.side];
+  const c1x = fp.x + fdx*offset, c1y = fp.y + fdy*offset;
+  const c2x = tp.x + tdx*offset, c2y = tp.y + tdy*offset;
+  return {
+    d: `M${fp.x},${fp.y} C${c1x},${c1y} ${c2x},${c2y} ${tp.x},${tp.y}`,
+    startPt: [fp.x, fp.y],  endPt: [tp.x, tp.y],
+    startDir: _norm(c1x - fp.x, c1y - fp.y),
+    endDir:   _norm(tp.x - c2x, tp.y - c2y),
+  };
+}
+
+// ── Draw all edges ────────────────────────────────────────────
 function drawEdges(entries, classSet) {
   const svgEl = document.getElementById('edges-svg');
 
   entries.forEach(entry => {
     (entry.dependencies || []).forEach(dep => {
       if (!classSet.has(dep.target)) return;
-      const from = nodes[entry.className];
-      const to   = nodes[dep.target];
+      const from = nodes[entry.className], to = nodes[dep.target];
       if (!from || !to || from === to) return;
 
-      const d = edgePath(from, to);
-      const markers = EDGE_MARKERS[dep.type] || EDGE_MARKERS.association;
+      const info = edgePathObj(from, to);
+      const isHidden = hiddenNodes.has(entry.className) || hiddenNodes.has(dep.target);
+      const vis = isHidden ? 'hidden' : '';
 
-      // Visible curved path
+      const setVis = el => { if (el) el.style.visibility = vis; return el; };
+
+      // Bezier path (stroke only, no markers)
       const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      path.setAttribute('d', d);
-      if (markers.start) path.setAttribute('marker-start', markers.start);
-      path.setAttribute('marker-end', markers.end);
+      path.setAttribute('d', info.d);
       path.classList.add('edge-line', `edge-${dep.type}`);
+      setVis(path);
       svgEl.appendChild(path);
 
-      // Invisible wide hit target (UI-09)
+      // Invisible wide hit target
       const hit = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      hit.setAttribute('d', d);
+      hit.setAttribute('d', info.d);
       hit.classList.add('edge-hit');
-      hit.addEventListener('mouseenter', (e) => {
+      setVis(hit);
+      hit.addEventListener('mouseenter', e => {
         const card = dep.cardinality ? ` [${dep.cardinality}]` : '';
         showTooltip(e.clientX + 12, e.clientY + 8,
           `${entry.className} → ${dep.target}\nType: ${dep.type}${card}`);
       });
       hit.addEventListener('mouseleave', hideTooltip);
-      // UI-10: click edge → highlight both ends
-      hit.addEventListener('click', (e) => {
-        e.stopPropagation();
-        highlightEdgePair(entry.className, dep.target);
-      });
+      hit.addEventListener('click', e => { e.stopPropagation(); highlightEdgePair(entry.className, dep.target); });
       svgEl.appendChild(hit);
 
+      // Arrowhead at target end
+      const endHead = setVis(_endHead(dep.type, info.endPt, info.endDir));
+      svgEl.appendChild(endHead);
+
+      // Diamond at source end (composition / aggregation only)
+      const startHead = _startHead(dep.type, info.startPt, info.startDir);
+      if (startHead) { setVis(startHead); svgEl.appendChild(startHead); }
+
       edges.push({ from: entry.className, to: dep.target, type: dep.type,
-                   cardinality: dep.cardinality, elLine: path, elHit: hit });
+                   cardinality: dep.cardinality,
+                   elLine: path, elHit: hit, elEndHead: endHead, elStartHead: startHead });
     });
   });
 }
 
-/**
- * Returns a cubic-bezier SVG path string connecting the nearest ports of
- * two nodes. The control-point offset is proportional to the distance so
- * short and long edges both look natural.
- */
-function edgePath(from, to) {
-  // Centre points
-  const fcx = from.x + from.w / 2, fcy = from.y + from.h / 2;
-  const tcx = to.x   + to.w   / 2, tcy = to.y   + to.h   / 2;
-
-  // Pick the closest port on each node (top/bottom/left/right centre)
-  const fromPorts = [
-    { x: fcx,           y: from.y,           side: 'top'    },
-    { x: fcx,           y: from.y + from.h,  side: 'bottom' },
-    { x: from.x,        y: fcy,              side: 'left'   },
-    { x: from.x + from.w, y: fcy,            side: 'right'  },
-  ];
-  const toPorts = [
-    { x: tcx,         y: to.y,           side: 'top'    },
-    { x: tcx,         y: to.y + to.h,    side: 'bottom' },
-    { x: to.x,        y: tcy,            side: 'left'   },
-    { x: to.x + to.w, y: tcy,            side: 'right'  },
-  ];
-
-  let best = null, bestDist = Infinity;
-  for (const fp of fromPorts) {
-    for (const tp of toPorts) {
-      const d = Math.hypot(fp.x - tp.x, fp.y - tp.y);
-      if (d < bestDist) { bestDist = d; best = { fp, tp }; }
-    }
-  }
-  const { fp, tp } = best;
-
-  // Control points: pull outward from each port
-  const offset = Math.max(40, bestDist * 0.35);
-  const dir = { top: [0, -1], bottom: [0, 1], left: [-1, 0], right: [1, 0] };
-  const [fdx, fdy] = dir[fp.side];
-  const [tdx, tdy] = dir[tp.side];
-  const c1x = fp.x + fdx * offset, c1y = fp.y + fdy * offset;
-  const c2x = tp.x + tdx * offset, c2y = tp.y + tdy * offset;
-
-  return `M${fp.x},${fp.y} C${c1x},${c1y} ${c2x},${c2y} ${tp.x},${tp.y}`;
-}
-
-function edgeEndpoints(from, to) {
-  // kept for minimap / export compatibility
-  const fx = from.x + from.w / 2, fy = from.y + from.h / 2;
-  const tx = to.x   + to.w   / 2, ty = to.y   + to.h   / 2;
-  return [fx, fy, tx, ty];
-}
-
+// ── Update edge positions after node move/resize ──────────────
 function redrawEdges() {
-  // Update all existing edge positions after node move/resize
   edges.forEach(e => {
     const from = nodes[e.from], to = nodes[e.to];
     if (!from || !to) return;
-    const d = edgePath(from, to);
-    for (const el of [e.elLine, e.elHit]) {
-      if (el) el.setAttribute('d', d);
+    const info = edgePathObj(from, to);
+    if (e.elLine) e.elLine.setAttribute('d', info.d);
+    if (e.elHit)  e.elHit.setAttribute('d', info.d);
+    if (e.elEndHead) {
+      const pts = _arrowPts(info.endPt, info.endDir);
+      e.elEndHead.setAttribute('points', _ptsStr(pts));
     }
+    if (e.elStartHead) {
+      const pts = _diamondPts(info.startPt, info.startDir);
+      e.elStartHead.setAttribute('points', _ptsStr(pts));
+    }
+  });
+}
+
+// ── Show/hide edges whose endpoint is hidden ──────────────────
+function updateEdgeVisibility() {
+  edges.forEach(e => {
+    const vis = (hiddenNodes.has(e.from) || hiddenNodes.has(e.to)) ? 'hidden' : '';
+    [e.elLine, e.elHit, e.elEndHead, e.elStartHead].forEach(el => {
+      if (el) el.style.visibility = vis;
+    });
   });
 }
 
@@ -1579,7 +1605,7 @@ function addEntriesToCanvas(entries) {
     const allVisible = Object.values(nodes).map(n => n.entry);
     const classSet = new Set(allVisible.map(e => e.className));
     const svgEl = document.getElementById('edges-svg');
-    while (svgEl.childNodes.length > 1) svgEl.removeChild(svgEl.lastChild);
+    while (svgEl.firstChild) svgEl.removeChild(svgEl.firstChild);
     edges = [];
     drawEdges(allVisible, classSet);
     refreshExpandBadges();
@@ -1605,7 +1631,7 @@ function undoExpand() {
   const allVisible = Object.values(nodes).map(n => n.entry);
   const classSet = new Set(allVisible.map(e => e.className));
   const svgEl = document.getElementById('edges-svg');
-  while (svgEl.childNodes.length > 1) svgEl.removeChild(svgEl.lastChild);
+  while (svgEl.firstChild) svgEl.removeChild(svgEl.firstChild);
   edges = [];
   drawEdges(allVisible, classSet);
   refreshExpandBadges();
@@ -2378,7 +2404,7 @@ document.getElementById('ctx-explore-here').addEventListener('click', () => {
   const canvas = document.getElementById('canvas');
   const svgEl  = document.getElementById('edges-svg');
   Array.from(canvas.children).forEach(c => { if (c.id !== 'edges-svg') canvas.removeChild(c); });
-  while (svgEl.childNodes.length > 1) svgEl.removeChild(svgEl.lastChild);
+  while (svgEl.firstChild) svgEl.removeChild(svgEl.firstChild);
   nodes = {}; edges = [];
   const cx = 400, cy = 200;
   nodePositions[entry.className] = { x: cx, y: cy };
