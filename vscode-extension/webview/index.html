@@ -103,12 +103,46 @@
       user-select: none;
       transition: border-color 0.15s, box-shadow 0.15s;
     }
+    /* P7-02: when user has manually resized, lift max-width and wrap text */
+    .class-node.resized {
+      max-width: none;
+    }
+    .class-node.resized .node-class-name,
+    .class-node.resized .node-responsibility,
+    .class-node.resized .node-attribute,
+    .class-node.resized .node-method-name,
+    .class-node.resized .node-method {
+      white-space: normal;
+      overflow: visible;
+      text-overflow: unset;
+      word-break: break-word;
+    }
     .class-node:hover { border-color: #007acc; }
     .class-node.selected { border-color: #007acc; box-shadow: 0 0 0 2px rgba(0,122,204,0.3); }
     .class-node.highlight-up   { border-color: #e8a000; box-shadow: 0 0 0 2px rgba(232,160,0,0.3); }
     .class-node.highlight-down { border-color: #4ec9b0; box-shadow: 0 0 0 2px rgba(78,201,176,0.3); }
     .class-node.dimmed { opacity: 0.25; }
     .class-node.node-dragging { cursor: grabbing; z-index: 10; box-shadow: 0 4px 16px rgba(0,0,0,0.6); }
+    .class-node.node-resizing { cursor: se-resize !important; z-index: 10; }
+
+    /* P7-01: resize handle — bottom-right corner triangle */
+    .node-resize-handle {
+      position: absolute;
+      bottom: 0;
+      right: 0;
+      width: 14px;
+      height: 14px;
+      cursor: se-resize;
+      z-index: 5;
+      /* Triangle drawn with border trick */
+      border-bottom: 10px solid #555;
+      border-left: 10px solid transparent;
+      border-radius: 0 0 3px 0;
+      opacity: 0.4;
+      transition: opacity 0.15s;
+    }
+    .class-node:hover .node-resize-handle { opacity: 0.9; }
+    .class-node.node-resizing .node-resize-handle { opacity: 1; border-bottom-color: #007acc; }
 
     /* Header is the drag handle */
     .node-header {
@@ -489,6 +523,8 @@ const VIEW_LIMIT  = 150;
 
 // UI-02: persisted node positions (survive re-render)
 const nodePositions = {};   // className → {x, y}
+// P7-03: persisted node widths (survive re-render)
+const nodeWidths = {};      // className → width (px number)
 // UI-03: collapsed state
 const collapsedNodes = new Set();
 
@@ -498,6 +534,8 @@ let isPanning = false, panStartX = 0, panStartY = 0, panOriginX = 0, panOriginY 
 
 // UI-01: per-node drag
 let nodeDrag = null; // { className, startMouseX, startMouseY, startNodeX, startNodeY }
+// P7-02: per-node resize
+let nodeResize = null; // { className, startMouseX, startW }
 
 // Selection
 let selectedClass  = null;
@@ -812,6 +850,30 @@ function createNodeEl(entry) {
     selectNode(entry.className);
     showContextMenu(e.clientX, e.clientY, entry);
   });
+
+  // P7-01: resize handle (bottom-right corner)
+  const resizeHandle = document.createElement('div');
+  resizeHandle.className = 'node-resize-handle';
+  resizeHandle.title = 'Drag to resize';
+  resizeHandle.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    e.preventDefault();
+    const n = nodes[entry.className];
+    nodeResize = {
+      className:   entry.className,
+      startMouseX: e.clientX,
+      startW:      n ? n.w : (nodeWidths[entry.className] || 200),
+    };
+    el.classList.add('node-resizing');
+  });
+  el.appendChild(resizeHandle);
+
+  // P7-03: restore saved width
+  if (nodeWidths[entry.className]) {
+    el.style.width = nodeWidths[entry.className] + 'px';
+    el.classList.add('resized');
+  }
 
   return el;
 }
@@ -1332,6 +1394,24 @@ document.getElementById('canvas-container').addEventListener('click', () => {
 //  Node drag (UI-01)
 // ============================================================
 window.addEventListener('mousemove', e => {
+  // P7-02: node resize takes priority over drag / pan
+  if (nodeResize) {
+    const dx = (e.clientX - nodeResize.startMouseX) / scale;
+    const newW = Math.max(180, nodeResize.startW + dx);
+    const n = nodes[nodeResize.className];
+    if (n) {
+      n.w = newW;
+      n.el.style.width = newW + 'px';
+      n.el.classList.add('resized');
+      // P7-03: persist width
+      nodeWidths[nodeResize.className] = newW;
+      // P7-04: redraw edges in real-time
+      redrawEdges();
+      renderMinimap();
+    }
+    return;
+  }
+
   if (nodeDrag) {
     const dx = (e.clientX - nodeDrag.startMouseX) / scale;
     const dy = (e.clientY - nodeDrag.startMouseY) / scale;
@@ -1357,6 +1437,14 @@ window.addEventListener('mousemove', e => {
 });
 
 window.addEventListener('mouseup', () => {
+  if (nodeResize) {
+    const n = nodes[nodeResize.className];
+    if (n) {
+      n.h = n.el.offsetHeight;
+      n.el.classList.remove('node-resizing');
+    }
+    nodeResize = null;
+  }
   if (nodeDrag) {
     const n = nodes[nodeDrag.className];
     if (n) n.el.classList.remove('node-dragging');
