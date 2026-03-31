@@ -489,22 +489,29 @@
     .edge-dependency    { stroke: #888; stroke-dasharray: 5,3; }
 
     .edge-line {
-      stroke-width: 1.5;
+      stroke-width: 2;
       fill: none;
-      marker-end: url(#arrow);
       cursor: pointer;
     }
     .edge-line:hover { stroke-width: 3; }
-    .edge-inheritance { marker-end: url(#arrow-inherit); }
-    .edge-composition { marker-start: url(#arrow-comp-start); marker-end: url(#arrow-comp); }
-    .edge-aggregation { marker-start: url(#arrow-agg-start); marker-end: url(#arrow-agg); }
 
     .edge-hit {
       stroke: transparent;
-      stroke-width: 12;
+      stroke-width: 14;
       fill: none;
       cursor: pointer;
     }
+
+    /* ── Rubber-band selection ── */
+    #rubber-band {
+      position: absolute;
+      border: 1.5px dashed #007acc;
+      background: rgba(0,122,204,0.08);
+      pointer-events: none;
+      z-index: 20;
+      display: none;
+    }
+    .node-selected > .node-header { outline: 2px solid #007acc; outline-offset: -2px; border-radius: 4px 4px 0 0; }
 
     /* ── Minimap ── */
     #minimap {
@@ -590,6 +597,8 @@
   <button id="btn-layout-tb"  class="active" title="Top-to-bottom layout">TB</button>
   <button id="btn-layout-lr"  title="Left-to-right layout">LR</button>
   <button id="btn-undo" title="Undo last neighbor expansion (Ctrl+Z)" disabled>↩ Undo</button>
+  <button id="btn-select" title="Rubber-band select mode — drag to select, Del to hide (shortcut: S)">⬚ Select</button>
+  <button id="btn-show-hidden" title="Restore all hidden nodes" style="display:none;color:#f5a623;border-color:#f5a623;">Show Hidden (0)</button>
   <div class="export-wrap">
     <button id="btn-export" title="Export / Copy diagram">Export ▾</button>
     <div id="export-menu">
@@ -602,30 +611,32 @@
 
 <!-- Canvas -->
 <div id="canvas-container">
+  <div id="rubber-band"></div>
   <div id="canvas">
     <svg id="edges-svg">
       <defs>
-        <!-- P12-04: per-type arrowhead markers -->
-        <!-- association / dependency: filled grey arrow -->
-        <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="4" orient="auto">
+        <!-- association / dependency: grey filled arrow -->
+        <marker id="arrow" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto">
           <path d="M0,0 L0,8 L10,4 z" fill="#888"/>
         </marker>
-        <!-- inheritance: hollow triangle (white fill, coloured stroke) -->
-        <marker id="arrow-inherit" markerWidth="12" markerHeight="12" refX="10" refY="5" orient="auto">
-          <path d="M0,0 L0,10 L11,5 z" fill="#1e1e1e" stroke="#c586c0" stroke-width="1.5"/>
+        <!-- inheritance: hollow triangle, purple stroke -->
+        <marker id="arrow-inherit" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="10" refX="12" refY="5" orient="auto">
+          <path d="M0,0 L0,10 L12,5 z" fill="#1e1e1e" stroke="#c586c0" stroke-width="1.5"/>
         </marker>
-        <!-- composition: filled teal diamond -->
-        <marker id="arrow-comp-start" markerWidth="12" markerHeight="12" refX="1" refY="5" orient="auto">
-          <polygon points="0,5 5,0 10,5 5,10" fill="#4ec9b0"/>
+        <!-- composition SOURCE: filled teal diamond (sits at path start) -->
+        <marker id="arrow-comp-start" markerUnits="userSpaceOnUse" markerWidth="14" markerHeight="10" refX="0" refY="5" orient="auto-start-reverse">
+          <polygon points="0,5 7,0 14,5 7,10" fill="#4ec9b0"/>
         </marker>
-        <marker id="arrow-comp" markerWidth="10" markerHeight="10" refX="9" refY="4" orient="auto">
+        <!-- composition TARGET: filled teal arrow -->
+        <marker id="arrow-comp" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto">
           <path d="M0,0 L0,8 L10,4 z" fill="#4ec9b0"/>
         </marker>
-        <!-- aggregation: hollow diamond -->
-        <marker id="arrow-agg-start" markerWidth="12" markerHeight="12" refX="1" refY="5" orient="auto">
-          <polygon points="0,5 5,0 10,5 5,10" fill="#1e1e1e" stroke="#9cdcfe" stroke-width="1.5"/>
+        <!-- aggregation SOURCE: hollow diamond, blue stroke -->
+        <marker id="arrow-agg-start" markerUnits="userSpaceOnUse" markerWidth="14" markerHeight="10" refX="0" refY="5" orient="auto-start-reverse">
+          <polygon points="0,5 7,0 14,5 7,10" fill="#1e1e1e" stroke="#9cdcfe" stroke-width="1.5"/>
         </marker>
-        <marker id="arrow-agg" markerWidth="10" markerHeight="10" refX="9" refY="4" orient="auto">
+        <!-- aggregation TARGET: blue arrow -->
+        <marker id="arrow-agg" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto">
           <path d="M0,0 L0,8 L10,4 z" fill="#9cdcfe"/>
         </marker>
       </defs>
@@ -707,6 +718,57 @@ const collapsedNodes = new Set();
 // Pan/zoom (canvas level)
 let panX = 0, panY = 0, scale = 1;
 let isPanning = false, panStartX = 0, panStartY = 0, panOriginX = 0, panOriginY = 0;
+
+// ── Rubber-band select & hide ──────────────────────────────────
+let isSelectMode  = false;
+let rubberStart   = null;   // { cx, cy } in container coords
+const selectedNodes = new Set();  // classNames currently rubber-band selected
+const hiddenNodes   = new Set();  // classNames hidden until restored
+const rubberEl = document.getElementById('rubber-band');
+
+function updateShowHiddenBtn() {
+  const btn = document.getElementById('btn-show-hidden');
+  if (hiddenNodes.size > 0) {
+    btn.style.display = '';
+    btn.textContent = `Show Hidden (${hiddenNodes.size})`;
+  } else {
+    btn.style.display = 'none';
+  }
+}
+
+document.getElementById('btn-select').addEventListener('click', function() {
+  isSelectMode = !isSelectMode;
+  this.classList.toggle('active', isSelectMode);
+  document.getElementById('canvas-container').style.cursor = isSelectMode ? 'crosshair' : '';
+});
+
+document.getElementById('btn-show-hidden').addEventListener('click', () => {
+  [...hiddenNodes].forEach(cn => {
+    const n = nodes[cn];
+    if (n) n.el.style.display = '';
+  });
+  hiddenNodes.clear();
+  redrawEdges(); renderMinimap(); updateShowHiddenBtn();
+});
+
+window.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') return;
+  // S toggles select mode
+  if (e.key === 's' || e.key === 'S') {
+    document.getElementById('btn-select').click(); return;
+  }
+  // Delete / Backspace hides selected nodes
+  if ((e.key === 'Delete' || e.key === 'Backspace') && selectedNodes.size > 0) {
+    e.preventDefault();
+    selectedNodes.forEach(cn => {
+      hiddenNodes.add(cn);
+      const n = nodes[cn];
+      if (n) { n.el.style.display = 'none'; n.el.classList.remove('node-selected'); }
+    });
+    selectedNodes.clear();
+    redrawEdges(); renderMinimap(); updateShowHiddenBtn();
+  }
+});
 
 // UI-01: per-node drag
 let nodeDrag = null; // { className, startMouseX, startMouseY, startNodeX, startNodeY }
@@ -1229,6 +1291,14 @@ function trimSignature(sig) {
 // ============================================================
 //  Edges
 // ============================================================
+const EDGE_MARKERS = {
+  inheritance: { start: null,                     end: 'url(#arrow-inherit)' },
+  composition: { start: 'url(#arrow-comp-start)', end: 'url(#arrow-comp)'   },
+  aggregation: { start: 'url(#arrow-agg-start)',  end: 'url(#arrow-agg)'    },
+  association: { start: null,                     end: 'url(#arrow)'        },
+  dependency:  { start: null,                     end: 'url(#arrow)'        },
+};
+
 function drawEdges(entries, classSet) {
   const svgEl = document.getElementById('edges-svg');
 
@@ -1240,10 +1310,13 @@ function drawEdges(entries, classSet) {
       if (!from || !to || from === to) return;
 
       const d = edgePath(from, to);
+      const markers = EDGE_MARKERS[dep.type] || EDGE_MARKERS.association;
 
       // Visible curved path
       const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       path.setAttribute('d', d);
+      if (markers.start) path.setAttribute('marker-start', markers.start);
+      path.setAttribute('marker-end', markers.end);
       path.classList.add('edge-line', `edge-${dep.type}`);
       svgEl.appendChild(path);
 
@@ -1927,6 +2000,16 @@ window.addEventListener('mousemove', e => {
     }
     return;
   }
+  if (rubberStart) {
+    const rect = container.getBoundingClientRect();
+    const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
+    const x = Math.min(cx, rubberStart.cx), y = Math.min(cy, rubberStart.cy);
+    rubberEl.style.left   = x + 'px';
+    rubberEl.style.top    = y + 'px';
+    rubberEl.style.width  = Math.abs(cx - rubberStart.cx) + 'px';
+    rubberEl.style.height = Math.abs(cy - rubberStart.cy) + 'px';
+    return;
+  }
   if (isPanning) {
     panX = panOriginX + (e.clientX - panStartX);
     panY = panOriginY + (e.clientY - panStartY);
@@ -1934,7 +2017,7 @@ window.addEventListener('mousemove', e => {
   }
 });
 
-window.addEventListener('mouseup', () => {
+window.addEventListener('mouseup', e => {
   if (nodeResize) {
     const n = nodes[nodeResize.className];
     if (n) {
@@ -1947,6 +2030,30 @@ window.addEventListener('mouseup', () => {
     const n = nodes[nodeDrag.className];
     if (n) n.el.classList.remove('node-dragging');
     nodeDrag = null;
+  }
+  if (rubberStart) {
+    const rect = container.getBoundingClientRect();
+    const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
+    // Convert rubber-band corners to canvas world coords
+    const x1 = (Math.min(cx, rubberStart.cx) - panX) / scale;
+    const y1 = (Math.min(cy, rubberStart.cy) - panY) / scale;
+    const x2 = (Math.max(cx, rubberStart.cx) - panX) / scale;
+    const y2 = (Math.max(cy, rubberStart.cy) - panY) / scale;
+    // Clear previous selection
+    selectedNodes.forEach(cn => { const n = nodes[cn]; if (n) n.el.classList.remove('node-selected'); });
+    selectedNodes.clear();
+    // Select overlapping visible nodes
+    if (x2 - x1 > 4 || y2 - y1 > 4) {  // ignore tiny clicks
+      Object.entries(nodes).forEach(([cn, n]) => {
+        if (n.el.style.display === 'none') return;
+        if (n.x < x2 && n.x + n.w > x1 && n.y < y2 && n.y + n.h > y1) {
+          selectedNodes.add(cn);
+          n.el.classList.add('node-selected');
+        }
+      });
+    }
+    rubberEl.style.display = 'none';
+    rubberStart = null;
   }
   isPanning = false;
   document.getElementById('canvas-container').classList.remove('panning');
@@ -1965,6 +2072,17 @@ const container = document.getElementById('canvas-container');
 
 container.addEventListener('mousedown', e => {
   if (e.button !== 0 || nodeDrag) return;
+  if (isSelectMode) {
+    // Start rubber-band selection
+    const rect = container.getBoundingClientRect();
+    rubberStart = { cx: e.clientX - rect.left, cy: e.clientY - rect.top };
+    rubberEl.style.left = rubberStart.cx + 'px';
+    rubberEl.style.top  = rubberStart.cy + 'px';
+    rubberEl.style.width  = '0px';
+    rubberEl.style.height = '0px';
+    rubberEl.style.display = 'block';
+    return;
+  }
   isPanning  = true;
   panStartX  = e.clientX;
   panStartY  = e.clientY;
