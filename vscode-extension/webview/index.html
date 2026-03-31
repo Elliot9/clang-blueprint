@@ -609,38 +609,43 @@
   <div id="info-bar">0 classes</div>
 </div>
 
+<!-- SVG marker defs MUST live outside the CSS-transformed canvas;
+     Chromium does not render SVG markers on transformed SVG elements.
+     These are referenced globally by #id from the edges-svg below. -->
+<svg id="svg-defs" width="0" height="0" style="position:absolute;overflow:hidden;">
+  <defs>
+    <!-- association / dependency -->
+    <marker id="arrow" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto">
+      <path d="M0,0 L0,8 L10,4 z" fill="#888"/>
+    </marker>
+    <!-- inheritance: hollow triangle, purple -->
+    <marker id="arrow-inherit" markerUnits="userSpaceOnUse" markerWidth="14" markerHeight="10" refX="14" refY="5" orient="auto">
+      <path d="M0,0 L0,10 L14,5 z" fill="#1e1e1e" stroke="#c586c0" stroke-width="1.5"/>
+    </marker>
+    <!-- composition SOURCE: filled teal diamond -->
+    <marker id="arrow-comp-start" markerUnits="userSpaceOnUse" markerWidth="14" markerHeight="10" refX="0" refY="5" orient="auto-start-reverse">
+      <polygon points="0,5 7,0 14,5 7,10" fill="#4ec9b0"/>
+    </marker>
+    <!-- composition TARGET: teal arrow -->
+    <marker id="arrow-comp" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto">
+      <path d="M0,0 L0,8 L10,4 z" fill="#4ec9b0"/>
+    </marker>
+    <!-- aggregation SOURCE: hollow diamond, blue -->
+    <marker id="arrow-agg-start" markerUnits="userSpaceOnUse" markerWidth="14" markerHeight="10" refX="0" refY="5" orient="auto-start-reverse">
+      <polygon points="0,5 7,0 14,5 7,10" fill="#1e1e1e" stroke="#9cdcfe" stroke-width="1.5"/>
+    </marker>
+    <!-- aggregation TARGET: blue arrow -->
+    <marker id="arrow-agg" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto">
+      <path d="M0,0 L0,8 L10,4 z" fill="#9cdcfe"/>
+    </marker>
+  </defs>
+</svg>
+
 <!-- Canvas -->
 <div id="canvas-container">
   <div id="rubber-band"></div>
   <div id="canvas">
-    <svg id="edges-svg">
-      <defs>
-        <!-- association / dependency: grey filled arrow -->
-        <marker id="arrow" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto">
-          <path d="M0,0 L0,8 L10,4 z" fill="#888"/>
-        </marker>
-        <!-- inheritance: hollow triangle, purple stroke -->
-        <marker id="arrow-inherit" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="10" refX="12" refY="5" orient="auto">
-          <path d="M0,0 L0,10 L12,5 z" fill="#1e1e1e" stroke="#c586c0" stroke-width="1.5"/>
-        </marker>
-        <!-- composition SOURCE: filled teal diamond (sits at path start) -->
-        <marker id="arrow-comp-start" markerUnits="userSpaceOnUse" markerWidth="14" markerHeight="10" refX="0" refY="5" orient="auto-start-reverse">
-          <polygon points="0,5 7,0 14,5 7,10" fill="#4ec9b0"/>
-        </marker>
-        <!-- composition TARGET: filled teal arrow -->
-        <marker id="arrow-comp" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto">
-          <path d="M0,0 L0,8 L10,4 z" fill="#4ec9b0"/>
-        </marker>
-        <!-- aggregation SOURCE: hollow diamond, blue stroke -->
-        <marker id="arrow-agg-start" markerUnits="userSpaceOnUse" markerWidth="14" markerHeight="10" refX="0" refY="5" orient="auto-start-reverse">
-          <polygon points="0,5 7,0 14,5 7,10" fill="#1e1e1e" stroke="#9cdcfe" stroke-width="1.5"/>
-        </marker>
-        <!-- aggregation TARGET: blue arrow -->
-        <marker id="arrow-agg" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto">
-          <path d="M0,0 L0,8 L10,4 z" fill="#9cdcfe"/>
-        </marker>
-      </defs>
-    </svg>
+    <svg id="edges-svg"></svg>
   </div>
   <div id="empty-state">
     <h2>Clang Blueprint</h2>
@@ -742,13 +747,23 @@ document.getElementById('btn-select').addEventListener('click', function() {
   document.getElementById('canvas-container').style.cursor = isSelectMode ? 'crosshair' : '';
 });
 
+/** Show/hide each edge based on whether either endpoint is hidden. */
+function updateEdgeVisibility() {
+  edges.forEach(e => {
+    const hidden = hiddenNodes.has(e.from) || hiddenNodes.has(e.to);
+    const vis = hidden ? 'hidden' : '';
+    if (e.elLine) e.elLine.style.visibility = vis;
+    if (e.elHit)  e.elHit.style.visibility  = vis;
+  });
+}
+
 document.getElementById('btn-show-hidden').addEventListener('click', () => {
   [...hiddenNodes].forEach(cn => {
     const n = nodes[cn];
     if (n) n.el.style.display = '';
   });
   hiddenNodes.clear();
-  redrawEdges(); renderMinimap(); updateShowHiddenBtn();
+  updateEdgeVisibility(); redrawEdges(); renderMinimap(); updateShowHiddenBtn();
 });
 
 window.addEventListener('keydown', e => {
@@ -757,7 +772,7 @@ window.addEventListener('keydown', e => {
   if (e.key === 's' || e.key === 'S') {
     document.getElementById('btn-select').click(); return;
   }
-  // Delete / Backspace hides selected nodes
+  // Delete / Backspace hides selected nodes and their edges
   if ((e.key === 'Delete' || e.key === 'Backspace') && selectedNodes.size > 0) {
     e.preventDefault();
     selectedNodes.forEach(cn => {
@@ -766,7 +781,7 @@ window.addEventListener('keydown', e => {
       if (n) { n.el.style.display = 'none'; n.el.classList.remove('node-selected'); }
     });
     selectedNodes.clear();
-    redrawEdges(); renderMinimap(); updateShowHiddenBtn();
+    updateEdgeVisibility(); redrawEdges(); renderMinimap(); updateShowHiddenBtn();
   }
 });
 
