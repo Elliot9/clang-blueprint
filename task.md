@@ -209,6 +209,16 @@
 
 ---
 
+## Phase 9：Method Trace Mode — 方法影響鏈視覺化
+
+> 目標：點擊 method 名稱，畫布自動標記該方法影響的所有 class/attribute，並以 1,2,3... 標示存取順序。
+
+- [x] **P9-01** Webview：每個 method 行末加入 `↗` icon（點擊跳原始碼），method 名稱本身改為觸發 Trace Mode
+- [x] **P9-02** `ast_parser.py`：新增 `_scan_method_accesses()`，掃描方法體 `MEMBER_REF_EXPR` / `CALL_EXPR`，依 source order 記錄 `[{order, targetClass, member, kind}]`，存入 `interfaceMeta[].callSequence[]`
+- [x] **P9-03** Webview：實作 Trace Mode — 點擊 method 名稱後，dim 無關節點、目標 class 節點顯示數字 badge（①②③...）、目標 attribute/method 行高亮；Escape 或點空白處退出
+
+---
+
 ## 優先順序（MVP 最小可行產品）
 
 > 完成以下項目即可示範核心價值：

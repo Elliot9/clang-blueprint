@@ -504,10 +504,13 @@ class ASTVisitor:
                         ret = re.sub(r"\bconst\b|\bvolatile\b|\*|&", "", ret).strip().lstrip(":")
                         if ret and not _is_trivial_type(ret) and ret not in used_types:
                             used_types.append(ret)
+                    # P9-02: ordered call/field-access sequence from method body
+                    call_seq = self._scan_method_accesses(child, raw_name)
                     interface_meta.append({
                         "signature": sig,
                         "lineNumber": child.location.line,
                         "usedTypes": used_types,
+                        "callSequence": call_seq,
                     })
 
                 # Inspect method parameters for association dependencies
@@ -576,6 +579,66 @@ class ASTVisitor:
                         dependencies.append(Dependency(target=type_name, type="dependency"))
             # Recurse into compound statements
             self._scan_body_for_deps(child, seen_deps, dependencies, raw_name, class_key)
+
+    # P9-02: ordered call/field-access sequence from method body
+    def _scan_method_accesses(
+        self,
+        method_cursor: Any,
+        self_class_name: str,
+    ) -> list[dict]:
+        """
+        Walk a method body for MEMBER_REF_EXPR / CALL_EXPR to build an ordered
+        sequence of accesses to members of OTHER classes.
+
+        Returns list of {order, targetClass, member, kind} dicts, deduplicated
+        by (targetClass, member) keeping the first occurrence.
+        """
+        seen: list[tuple[str, str]] = []
+        result: list[dict] = []
+
+        def _walk(c: Any) -> None:
+            if c.kind == CursorKind.MEMBER_REF_EXPR:
+                try:
+                    ref = c.referenced
+                    if not ref:
+                        return
+                    parent_cls = ref.semantic_parent
+                    if not parent_cls:
+                        return
+                    cls_name = parent_cls.spelling
+                    if not cls_name or cls_name == self_class_name:
+                        return  # skip self-accesses
+                    if _is_trivial_type(cls_name):
+                        return
+                    # Restrict to project-owned classes
+                    if parent_cls.location.file:
+                        if not _is_definition_in_project(
+                            os.path.abspath(parent_cls.location.file.name),
+                            self.project_root,
+                        ):
+                            return
+                    member = ref.spelling or ""
+                    key = (cls_name, member)
+                    if key not in seen:
+                        seen.append(key)
+                        kind = (
+                            "field"
+                            if ref.kind == CursorKind.FIELD_DECL
+                            else "call"
+                        )
+                        result.append({
+                            "order":       len(result) + 1,
+                            "targetClass": cls_name,
+                            "member":      member,
+                            "kind":        kind,
+                        })
+                except Exception:
+                    pass
+            for child in c.get_children():
+                _walk(child)
+
+        _walk(method_cursor)
+        return result
 
     # P8-05/06/07: index free (non-member) functions
     def _visit_free_function(self, cursor: Any) -> None:

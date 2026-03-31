@@ -228,6 +228,46 @@
       line-height: 1.5;
     }
 
+    /* P9-01: jump-to-source icon beside method name */
+    .method-jump-icon {
+      flex-shrink: 0;
+      font-size: 9px;
+      color: #555;
+      cursor: pointer;
+      padding: 0 2px;
+      border-radius: 2px;
+      line-height: 1.5;
+      user-select: none;
+    }
+    .method-jump-icon:hover { color: #4fc3f7; background: #2a2d2e; }
+
+    /* P9-03: Trace Mode */
+    .class-node.trace-source { box-shadow: 0 0 0 2px #4fc3f7 !important; }
+    .class-node.trace-target { box-shadow: 0 0 0 2px #ffd700 !important; }
+    .class-node.trace-dimmed { opacity: 0.18; filter: grayscale(70%); pointer-events: none; }
+    .trace-seq-badge {
+      position: absolute;
+      top: -9px; right: -9px;
+      background: #ffd700;
+      color: #1e1e1e;
+      border-radius: 50%;
+      width: 18px; height: 18px;
+      font-size: 11px;
+      font-weight: bold;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 20;
+      pointer-events: none;
+    }
+    .trace-method-active { background: rgba(79,195,247,0.18) !important; border-radius: 3px; }
+    .trace-member-hit {
+      color: #ffd700 !important;
+      background: rgba(255,215,0,0.12) !important;
+      border-radius: 2px;
+    }
+    .node-method-name.trace-active-method { color: #4fc3f7 !important; }
+
     .node-methods {
       padding: 2px 8px 4px;
     }
@@ -540,6 +580,9 @@ let nodeResize = null; // { className, startMouseX, startW }
 // Selection
 let selectedClass  = null;
 
+// P9-03: Method Trace Mode state
+let traceMode = null; // {className, methodIdx} or null
+
 // P5-10: Exploration history stack — each entry: {addedClasses: Set, triggerClass}
 const exploreHistory = [];
 
@@ -743,6 +786,9 @@ function createNodeEl(entry) {
       a.className = 'node-attribute';
       a.textContent = line;
       a.title = line;
+      // P9-03: data-member for trace-mode highlighting
+      const fieldNameMatch = line.match(/(\w+)\s*(?:=.*)?$/);
+      if (fieldNameMatch) a.dataset.member = fieldNameMatch[1];
       aDiv.appendChild(a);
     });
     body.appendChild(aDiv);
@@ -763,19 +809,33 @@ function createNodeEl(entry) {
       const row = document.createElement('div');
       row.className = 'node-method-row';
 
-      // Method name (clickable → jump to source)
+      // Method name (P9-01: click → trace mode)
       const m = document.createElement('div');
       m.className = 'node-method-name';
       m.textContent = trimSignature(sig);
-      m.title = sig;  // UI-07 full sig tooltip
+      m.title = sig + '\n(click to trace, ↗ to jump to source)';
       const meta = methodMeta[idx];
       const lineNum = meta ? meta.lineNumber : entry.lineNumber;
+      // data-member for trace-mode highlighting (extract method name)
+      const methodNameMatch = sig.match(/(\w+)\s*\(/);
+      if (methodNameMatch) m.dataset.member = methodNameMatch[1];
       m.addEventListener('click', (e) => {
+        e.stopPropagation();
+        enterTraceMode(entry, idx);
+      });
+      row.appendChild(m);
+
+      // P9-01: ↗ jump-to-source icon
+      const jumpIcon = document.createElement('span');
+      jumpIcon.className = 'method-jump-icon';
+      jumpIcon.textContent = '↗';
+      jumpIcon.title = 'Jump to source';
+      jumpIcon.addEventListener('click', (e) => {
         e.stopPropagation();
         vscode.postMessage({ type: 'nodeClick', fileLocation: entry.fileLocation,
           lineNumber: lineNum, className: entry.className });
       });
-      row.appendChild(m);
+      row.appendChild(jumpIcon);
 
       // P5-02: usedTypes badges
       const usedTypes = (meta && meta.usedTypes) ? meta.usedTypes : [];
@@ -1314,7 +1374,104 @@ function _buildAdjacency(className) {
   return { upstream, downstream };
 }
 
+// ============================================================
+//  P9-03: Method Trace Mode
+// ============================================================
+
+function exitTraceMode() {
+  if (!traceMode) return;
+  Object.values(nodes).forEach(n => {
+    n.el.classList.remove('trace-source', 'trace-target', 'trace-dimmed');
+    n.el.querySelectorAll('.trace-seq-badge').forEach(b => b.remove());
+    n.el.querySelectorAll('.trace-method-active').forEach(el =>
+      el.classList.remove('trace-method-active'));
+    n.el.querySelectorAll('.trace-member-hit').forEach(el =>
+      el.classList.remove('trace-member-hit'));
+  });
+  traceMode = null;
+}
+
+function enterTraceMode(entry, methodIdx) {
+  // Toggle off if clicking the same method again
+  if (traceMode && traceMode.className === entry.className && traceMode.methodIdx === methodIdx) {
+    exitTraceMode();
+    return;
+  }
+  exitTraceMode();
+
+  const meta = (entry.interfaceMeta || [])[methodIdx];
+  if (!meta) return;
+
+  const callSeq = meta.callSequence || [];
+  const usedTypes = meta.usedTypes || [];
+
+  // Build ordered sequence of target classes from callSequence; fallback to usedTypes
+  // Each item: {seqNum, className, members:[{member,kind}]}
+  let sequence = [];
+  if (callSeq.length > 0) {
+    const classOrder = new Map();   // className → seqNum
+    const classMembers = new Map(); // className → [{member,kind}]
+    callSeq.forEach(({targetClass, member, kind}) => {
+      const shortName = targetClass.split('::').pop();
+      if (!classOrder.has(shortName)) {
+        classOrder.set(shortName, classOrder.size + 1);
+        classMembers.set(shortName, []);
+      }
+      classMembers.get(shortName).push({member, kind});
+    });
+    classOrder.forEach((seqNum, cn) => {
+      sequence.push({seqNum, className: cn, members: classMembers.get(cn) || []});
+    });
+  } else if (usedTypes.length > 0) {
+    usedTypes.forEach((t, i) => {
+      sequence.push({seqNum: i + 1, className: t.split('::').pop(), members: []});
+    });
+  }
+
+  if (sequence.length === 0) return; // nothing to trace
+
+  traceMode = {className: entry.className, methodIdx};
+
+  // Mark source node
+  const srcNode = nodes[entry.className];
+  if (srcNode) {
+    srcNode.el.classList.add('trace-source');
+    // Highlight the clicked method row
+    const methodRows = srcNode.el.querySelectorAll('.node-method-row');
+    if (methodRows[methodIdx]) methodRows[methodIdx].classList.add('trace-method-active');
+  }
+
+  const targetClassNames = new Set(sequence.map(s => s.className));
+
+  Object.entries(nodes).forEach(([cn, n]) => {
+    if (cn === entry.className) return;
+    const seqEntry = sequence.find(s => s.className === cn);
+    if (seqEntry) {
+      n.el.classList.add('trace-target');
+
+      // Numbered badge on the node
+      const badge = document.createElement('div');
+      badge.className = 'trace-seq-badge';
+      badge.textContent = seqEntry.seqNum;
+      // ensure relative positioning for absolute child
+      const prevPos = getComputedStyle(n.el).position;
+      if (prevPos === 'static') n.el.style.position = 'relative';
+      n.el.appendChild(badge);
+
+      // Highlight specific member rows (attributes + methods)
+      seqEntry.members.forEach(({member}) => {
+        n.el.querySelectorAll('[data-member]').forEach(el => {
+          if (el.dataset.member === member) el.classList.add('trace-member-hit');
+        });
+      });
+    } else {
+      n.el.classList.add('trace-dimmed');
+    }
+  });
+}
+
 function selectNode(className) {
+  exitTraceMode();
   Object.values(nodes).forEach(n =>
     n.el.classList.remove('selected','highlight-up','highlight-down','dimmed'));
   selectedClass = className;
@@ -1417,6 +1574,12 @@ document.getElementById('canvas-container').addEventListener('click', () => {
   Object.values(nodes).forEach(n =>
     n.el.classList.remove('selected','highlight-up','highlight-down','dimmed'));
   document.getElementById('detail-panel').classList.remove('visible');
+  exitTraceMode();
+});
+
+// P9-03: Escape exits trace mode
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') exitTraceMode();
 });
 
 // ============================================================
