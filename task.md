@@ -219,6 +219,13 @@
 
 ---
 
+## Phase 10：節點四區塊分層顯示
+
+- [x] **P10-01** `ast_parser.py`：`BlueprintEntry` 新增 `privateMethods[]`，抓取 protected/private 方法（含 signature、lineNumber、access、usedTypes、callSequence）
+- [x] **P10-02** Webview：節點改為 4 個各自可獨立折疊的區塊（① Public Fields ② Public Methods ③ Protected/Private Fields ④ Private Methods）；public 區塊預設展開，private/protected 區塊預設摺疊
+
+---
+
 ## 優先順序（MVP 最小可行產品）
 
 > 完成以下項目即可示範核心價值：

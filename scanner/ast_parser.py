@@ -59,6 +59,8 @@ class BlueprintEntry:
     interfaceMeta: list[dict] = field(default_factory=list)  # [{signature, lineNumber, usedTypes}]
     # P8-04: typedef/using aliases for this entry's scope
     typeAliases: list[dict] = field(default_factory=list)    # [{alias, canonical, depType}]
+    # P10-01: protected/private methods (public ones stay in interfaces/interfaceMeta)
+    privateMethods: list[dict] = field(default_factory=list)  # [{signature, lineNumber, access, usedTypes, callSequence}]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -76,6 +78,7 @@ class BlueprintEntry:
             "interfaces": self.interfaces,
             "interfaceMeta": self.interfaceMeta,
             "typeAliases": self.typeAliases,
+            "privateMethods": self.privateMethods,
             "fileLocation": self.fileLocation,
             "lineNumber": self.lineNumber,
             "namespace": self.namespace,
@@ -385,6 +388,7 @@ class ASTVisitor:
         attributes: list[str] = []
         interfaces: list[str] = []
         interface_meta: list[dict] = []
+        private_methods: list[dict] = []     # P10-01: protected/private methods
         dependencies: list[Dependency] = []
         seen_deps: set[tuple[str, str]] = set()
         type_aliases_used: list[dict] = []   # P8-04: aliases referenced by this class
@@ -490,26 +494,50 @@ class ASTVisitor:
                 CursorKind.DESTRUCTOR,
                 CursorKind.FUNCTION_TEMPLATE,
             ):
+                # Helper: collect used types from a method cursor
+                def _collect_used_types(mc: Any) -> list[str]:
+                    ut: list[str] = []
+                    for p in mc.get_arguments():
+                        t = _canonical_type_name(p)
+                        if t and not _is_trivial_type(t) and t not in ut:
+                            ut.append(t)
+                    if mc.result_type and mc.result_type.spelling:
+                        r = mc.result_type.spelling
+                        r = re.sub(r"\bconst\b|\bvolatile\b|\*|&", "", r).strip().lstrip(":")
+                        if r and not _is_trivial_type(r) and r not in ut:
+                            ut.append(r)
+                    return ut
+
                 if child.access_specifier == cindex.AccessSpecifier.PUBLIC:
                     sig = _method_signature(child)
                     interfaces.append(sig)
-                    # P5-01: collect non-trivial types used by this method
-                    used_types: list[str] = []
-                    for param in child.get_arguments():
-                        t = _canonical_type_name(param)
-                        if t and not _is_trivial_type(t) and t not in used_types:
-                            used_types.append(t)
-                    if child.result_type and child.result_type.spelling:
-                        ret = child.result_type.spelling
-                        ret = re.sub(r"\bconst\b|\bvolatile\b|\*|&", "", ret).strip().lstrip(":")
-                        if ret and not _is_trivial_type(ret) and ret not in used_types:
-                            used_types.append(ret)
+                    used_types = _collect_used_types(child)
                     # P9-02: ordered call/field-access sequence from method body
                     call_seq = self._scan_method_accesses(child, raw_name)
                     interface_meta.append({
                         "signature": sig,
                         "lineNumber": child.location.line,
                         "usedTypes": used_types,
+                        "callSequence": call_seq,
+                    })
+                elif child.access_specifier in (
+                    cindex.AccessSpecifier.PROTECTED,
+                    cindex.AccessSpecifier.PRIVATE,
+                ):
+                    # P10-01: capture protected/private methods
+                    sig = _method_signature(child)
+                    acc = (
+                        "protected"
+                        if child.access_specifier == cindex.AccessSpecifier.PROTECTED
+                        else "private"
+                    )
+                    used_types = _collect_used_types(child)
+                    call_seq = self._scan_method_accesses(child, raw_name)
+                    private_methods.append({
+                        "signature":    sig,
+                        "lineNumber":   child.location.line,
+                        "access":       acc,
+                        "usedTypes":    used_types,
                         "callSequence": call_seq,
                     })
 
@@ -550,6 +578,7 @@ class ASTVisitor:
             interfaces=interfaces,
             interfaceMeta=interface_meta,
             typeAliases=type_aliases_used,
+            privateMethods=private_methods,
             fileLocation=rel_file,
             lineNumber=loc.line,
             namespace=namespace,
