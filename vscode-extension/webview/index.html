@@ -496,7 +496,8 @@
     }
     .edge-line:hover { stroke-width: 3; }
     .edge-inheritance { marker-end: url(#arrow-inherit); }
-    .edge-composition { marker-end: url(#arrow-comp); }
+    .edge-composition { marker-start: url(#arrow-comp-start); marker-end: url(#arrow-comp); }
+    .edge-aggregation { marker-start: url(#arrow-agg-start); marker-end: url(#arrow-agg); }
 
     .edge-hit {
       stroke: transparent;
@@ -604,14 +605,28 @@
   <div id="canvas">
     <svg id="edges-svg">
       <defs>
-        <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
-          <path d="M0,0 L0,6 L8,3 z" fill="#888" />
+        <!-- P12-04: per-type arrowhead markers -->
+        <!-- association / dependency: filled grey arrow -->
+        <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="4" orient="auto">
+          <path d="M0,0 L0,8 L10,4 z" fill="#888"/>
         </marker>
-        <marker id="arrow-inherit" markerWidth="10" markerHeight="10" refX="9" refY="4" orient="auto">
-          <path d="M0,0 L0,8 L9,4 z" fill="none" stroke="#c586c0" stroke-width="1.2" />
+        <!-- inheritance: hollow triangle (white fill, coloured stroke) -->
+        <marker id="arrow-inherit" markerWidth="12" markerHeight="12" refX="10" refY="5" orient="auto">
+          <path d="M0,0 L0,10 L11,5 z" fill="#1e1e1e" stroke="#c586c0" stroke-width="1.5"/>
         </marker>
-        <marker id="arrow-comp" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
-          <polygon points="0,5 4,0 9,5 4,10" fill="#4ec9b0" />
+        <!-- composition: filled teal diamond -->
+        <marker id="arrow-comp-start" markerWidth="12" markerHeight="12" refX="1" refY="5" orient="auto">
+          <polygon points="0,5 5,0 10,5 5,10" fill="#4ec9b0"/>
+        </marker>
+        <marker id="arrow-comp" markerWidth="10" markerHeight="10" refX="9" refY="4" orient="auto">
+          <path d="M0,0 L0,8 L10,4 z" fill="#4ec9b0"/>
+        </marker>
+        <!-- aggregation: hollow diamond -->
+        <marker id="arrow-agg-start" markerWidth="12" markerHeight="12" refX="1" refY="5" orient="auto">
+          <polygon points="0,5 5,0 10,5 5,10" fill="#1e1e1e" stroke="#9cdcfe" stroke-width="1.5"/>
+        </marker>
+        <marker id="arrow-agg" markerWidth="10" markerHeight="10" refX="9" refY="4" orient="auto">
+          <path d="M0,0 L0,8 L10,4 z" fill="#9cdcfe"/>
         </marker>
       </defs>
     </svg>
@@ -744,27 +759,101 @@ vscode.postMessage({ type: 'ready' });
 // ============================================================
 //  Layout
 // ============================================================
+// P12-03: Kahn-BFS topo-rank tree layout — no overlapping, tree spreading
 function computeLayout(entries, direction) {
-  const NODE_W = 200, NODE_H_BASE = 46, GAP_X = 60, GAP_Y = 50;
-  const COLS = Math.ceil(Math.sqrt(entries.length)) || 1;
+  const NODE_W = 240, NODE_H = 50;
+  // Spacing: generous to prevent overlap even when nodes are expanded
+  const RANK_GAP = 180;   // distance between ranks (depth levels)
+  const NODE_GAP = 80;    // distance between siblings within a rank
 
   const positions = {};
-  let col = 0, row = 0;
-  entries.forEach((e) => {
-    // UI-02: use saved position if available
-    if (nodePositions[e.className]) {
-      positions[e.className] = { ...nodePositions[e.className], w: NODE_W, h: NODE_H_BASE };
-      return;
-    }
-    const h = NODE_H_BASE;
-    if (direction === 'LR') {
-      positions[e.className] = { x: row * (NODE_W + GAP_Y), y: col * (NODE_H_BASE + GAP_X), w: NODE_W, h };
-    } else {
-      positions[e.className] = { x: col * (NODE_W + GAP_X), y: row * (NODE_H_BASE + GAP_Y), w: NODE_W, h };
-    }
-    col++;
-    if (col >= COLS) { col = 0; row++; }
+  const classNames = new Set(entries.map(e => e.className));
+
+  // Restore manually-dragged positions; only lay out the rest
+  const toLayout = entries.filter(e => !nodePositions[e.className]);
+  entries.filter(e =>  nodePositions[e.className]).forEach(e => {
+    positions[e.className] = {
+      ...nodePositions[e.className],
+      w: nodeWidths[e.className] || NODE_W, h: NODE_H
+    };
   });
+
+  if (toLayout.length === 0) return positions;
+
+  // Build adjacency for nodes needing layout only
+  const toLayoutSet = new Set(toLayout.map(e => e.className));
+  const fwdEdges = {}; // cn → [targets in toLayout]
+  const inDeg    = {}; // cn → in-degree
+  toLayout.forEach(e => { fwdEdges[e.className] = []; inDeg[e.className] = 0; });
+
+  toLayout.forEach(e => {
+    (e.dependencies || []).forEach(dep => {
+      const t = dep.target;
+      if (toLayoutSet.has(t) && t !== e.className) {
+        fwdEdges[e.className].push(t);
+        inDeg[t]++;
+      }
+    });
+  });
+
+  // Kahn's BFS for rank assignment (longest-path variant)
+  const rank = {};
+  const queue = toLayout.filter(e => !inDeg[e.className]).map(e => e.className);
+  queue.forEach(cn => rank[cn] = 0);
+  let qi = 0;
+  while (qi < queue.length) {
+    const cn = queue[qi++];
+    (fwdEdges[cn] || []).forEach(t => {
+      rank[t] = Math.max(rank[t] || 0, rank[cn] + 1);
+      if (--inDeg[t] <= 0 && rank[t] !== undefined) queue.push(t);
+    });
+  }
+  // Nodes in cycles fall back to rank 0
+  toLayout.forEach(e => { if (rank[e.className] === undefined) rank[e.className] = 0; });
+
+  // Group by rank
+  const byRank = {};
+  toLayout.forEach(e => {
+    const r = rank[e.className];
+    (byRank[r] = byRank[r] || []).push(e.className);
+  });
+
+  // Sort siblings by average parent position (minimize edge crossings)
+  const tentativePos = {}; // cn → cross-axis position (for sorting next rank)
+  const rankNums = Object.keys(byRank).map(Number).sort((a, b) => a - b);
+
+  rankNums.forEach((r, rankIdx) => {
+    const group = byRank[r];
+
+    if (r > 0) {
+      group.sort((a, b) => {
+        const parentCrossPos = cn => {
+          const parents = toLayout.filter(e =>
+            (fwdEdges[e.className] || []).includes(cn) && tentativePos[e.className] !== undefined);
+          if (!parents.length) return 0;
+          return parents.reduce((s, p) => s + tentativePos[p.className], 0) / parents.length;
+        };
+        return parentCrossPos(a) - parentCrossPos(b);
+      });
+    }
+
+    const groupW = group.length * (NODE_W + NODE_GAP) - NODE_GAP;
+    group.forEach((cn, idx) => {
+      const crossPos = idx * (NODE_W + NODE_GAP);
+      tentativePos[cn] = crossPos + NODE_W / 2;
+
+      let x, y;
+      if (direction === 'LR') {
+        x = rankIdx * (NODE_W + RANK_GAP);
+        y = crossPos;
+      } else {
+        x = crossPos;
+        y = rankIdx * (NODE_H + RANK_GAP);
+      }
+      positions[cn] = { x, y, w: nodeWidths[cn] || NODE_W, h: NODE_H };
+    });
+  });
+
   return positions;
 }
 
@@ -992,7 +1081,7 @@ function createNodeEl(entry) {
   const pubAttrs  = allAttrs.filter(a => a.startsWith('+'));
   const privAttrs = allAttrs.filter(a => !a.startsWith('+'));
   if (pubAttrs.length > 0) {
-    const {wrapper, secBody} = makeSection('Public Fields', pubAttrs.length, true);
+    const {wrapper, secBody} = makeSection('Public Fields', pubAttrs.length, false);
     const aDiv = document.createElement('div'); aDiv.className = 'node-attributes';
     pubAttrs.forEach(l => aDiv.appendChild(buildAttrRow(l)));
     secBody.appendChild(aDiv); body.appendChild(wrapper);
@@ -1002,7 +1091,7 @@ function createNodeEl(entry) {
   const methods = entry.interfaces || [];
   const methodMeta = entry.interfaceMeta || [];
   if (methods.length > 0) {
-    const {wrapper, secBody} = makeSection('Public Methods', methods.length, true);
+    const {wrapper, secBody} = makeSection('Public Methods', methods.length, false);
     const mDiv = document.createElement('div'); mDiv.className = 'node-methods';
     methods.forEach((sig, idx) => mDiv.appendChild(buildMethodRow(sig, methodMeta[idx], false)));
     secBody.appendChild(mDiv); body.appendChild(wrapper);
@@ -1150,21 +1239,18 @@ function drawEdges(entries, classSet) {
       const to   = nodes[dep.target];
       if (!from || !to || from === to) return;
 
-      const [fx, fy, tx, ty] = edgeEndpoints(from, to);
+      const d = edgePath(from, to);
 
-      // Visible line
-      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-      line.setAttribute('x1', fx); line.setAttribute('y1', fy);
-      line.setAttribute('x2', tx); line.setAttribute('y2', ty);
-      line.classList.add('edge-line', `edge-${dep.type}`);
-      svgEl.appendChild(line);
+      // Visible curved path
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', d);
+      path.classList.add('edge-line', `edge-${dep.type}`);
+      svgEl.appendChild(path);
 
       // Invisible wide hit target (UI-09)
-      const hit = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-      hit.setAttribute('x1', fx); hit.setAttribute('y1', fy);
-      hit.setAttribute('x2', tx); hit.setAttribute('y2', ty);
+      const hit = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      hit.setAttribute('d', d);
       hit.classList.add('edge-hit');
-      const edgeInfo = dep;
       hit.addEventListener('mouseenter', (e) => {
         const card = dep.cardinality ? ` [${dep.cardinality}]` : '';
         showTooltip(e.clientX + 12, e.clientY + 8,
@@ -1179,12 +1265,57 @@ function drawEdges(entries, classSet) {
       svgEl.appendChild(hit);
 
       edges.push({ from: entry.className, to: dep.target, type: dep.type,
-                   cardinality: dep.cardinality, elLine: line, elHit: hit });
+                   cardinality: dep.cardinality, elLine: path, elHit: hit });
     });
   });
 }
 
+/**
+ * Returns a cubic-bezier SVG path string connecting the nearest ports of
+ * two nodes. The control-point offset is proportional to the distance so
+ * short and long edges both look natural.
+ */
+function edgePath(from, to) {
+  // Centre points
+  const fcx = from.x + from.w / 2, fcy = from.y + from.h / 2;
+  const tcx = to.x   + to.w   / 2, tcy = to.y   + to.h   / 2;
+
+  // Pick the closest port on each node (top/bottom/left/right centre)
+  const fromPorts = [
+    { x: fcx,           y: from.y,           side: 'top'    },
+    { x: fcx,           y: from.y + from.h,  side: 'bottom' },
+    { x: from.x,        y: fcy,              side: 'left'   },
+    { x: from.x + from.w, y: fcy,            side: 'right'  },
+  ];
+  const toPorts = [
+    { x: tcx,         y: to.y,           side: 'top'    },
+    { x: tcx,         y: to.y + to.h,    side: 'bottom' },
+    { x: to.x,        y: tcy,            side: 'left'   },
+    { x: to.x + to.w, y: tcy,            side: 'right'  },
+  ];
+
+  let best = null, bestDist = Infinity;
+  for (const fp of fromPorts) {
+    for (const tp of toPorts) {
+      const d = Math.hypot(fp.x - tp.x, fp.y - tp.y);
+      if (d < bestDist) { bestDist = d; best = { fp, tp }; }
+    }
+  }
+  const { fp, tp } = best;
+
+  // Control points: pull outward from each port
+  const offset = Math.max(40, bestDist * 0.35);
+  const dir = { top: [0, -1], bottom: [0, 1], left: [-1, 0], right: [1, 0] };
+  const [fdx, fdy] = dir[fp.side];
+  const [tdx, tdy] = dir[tp.side];
+  const c1x = fp.x + fdx * offset, c1y = fp.y + fdy * offset;
+  const c2x = tp.x + tdx * offset, c2y = tp.y + tdy * offset;
+
+  return `M${fp.x},${fp.y} C${c1x},${c1y} ${c2x},${c2y} ${tp.x},${tp.y}`;
+}
+
 function edgeEndpoints(from, to) {
+  // kept for minimap / export compatibility
   const fx = from.x + from.w / 2, fy = from.y + from.h / 2;
   const tx = to.x   + to.w   / 2, ty = to.y   + to.h   / 2;
   return [fx, fy, tx, ty];
@@ -1195,11 +1326,9 @@ function redrawEdges() {
   edges.forEach(e => {
     const from = nodes[e.from], to = nodes[e.to];
     if (!from || !to) return;
-    const [fx, fy, tx, ty] = edgeEndpoints(from, to);
+    const d = edgePath(from, to);
     for (const el of [e.elLine, e.elHit]) {
-      if (!el) continue;
-      el.setAttribute('x1', fx); el.setAttribute('y1', fy);
-      el.setAttribute('x2', tx); el.setAttribute('y2', ty);
+      if (el) el.setAttribute('d', d);
     }
   });
 }

@@ -234,6 +234,15 @@
 
 ---
 
+## Phase 12：Layout、Edge 方向與折疊修正
+
+- [x] **P12-01** `ast_parser.py`：移除 `PARSE_SKIP_FUNCTION_BODIES` flag，讓方法體完整解析（啟用真實 `MEMBER_REF_EXPR` 追蹤）
+- [x] **P12-02** Webview：所有節點 section（Public Fields / Public Methods / Private Fields / Private Methods / Aliases）預設全部折疊
+- [x] **P12-03** Webview：`computeLayout()` 改為拓撲排序樹狀佈局（Kahn's BFS rank assignment），同 rank 節點並排、跨 rank 依賴方向延伸，大幅增加 GAP 防重疊
+- [x] **P12-04** Webview：Edge 改用帶箭頭的曲線 path，依類型套用顏色標注 + 明顯方向箭頭（inheritance = 空心三角、composition = 實心菱形、aggregation = 空心菱形、association = 普通箭頭）
+
+---
+
 ## 優先順序（MVP 最小可行產品）
 
 > 完成以下項目即可示範核心價值：
