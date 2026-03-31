@@ -817,6 +817,31 @@ function createNodeEl(entry) {
     body.appendChild(mDiv);
   }
 
+  // P8-04: Aliases section — show typedef/using aliases resolved for this class
+  const aliases = entry.typeAliases || [];
+  if (aliases.length > 0) {
+    const aliasLbl = document.createElement('div');
+    aliasLbl.className = 'node-section-label';
+    aliasLbl.textContent = 'Aliases';
+    body.appendChild(aliasLbl);
+
+    const aliasDiv = document.createElement('div');
+    aliasDiv.className = 'node-methods';
+    aliases.forEach(({ alias, canonical }) => {
+      const row = document.createElement('div');
+      row.className = 'node-method-row';
+      row.style.fontStyle = 'italic';
+      row.style.opacity = '0.85';
+      const span = document.createElement('span');
+      span.className = 'node-method';
+      span.textContent = `${alias} → ${canonical}`;
+      span.title = `typedef ${alias} = ${canonical}`;
+      row.appendChild(span);
+      aliasDiv.appendChild(row);
+    });
+    body.appendChild(aliasDiv);
+  }
+
   el.appendChild(body);
 
   // ── Drag on header (UI-01) ──
@@ -1304,6 +1329,10 @@ function selectNode(className) {
     else                           nodes[name].el.classList.add('dimmed');
   });
   showDetail(node.entry);
+  // P8-01: auto-expand hidden neighbors so all related classes appear on canvas
+  if (countHiddenNeighbors(node.entry) > 0) {
+    expandNeighbors(className);
+  }
 }
 
 function highlightOnly(className, direction) {

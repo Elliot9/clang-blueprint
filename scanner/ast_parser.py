@@ -56,7 +56,9 @@ class BlueprintEntry:
     templateParams: list[str]
     attributes: list[str] = field(default_factory=list)
     # UI-08: per-method line numbers for click-to-source
-    interfaceMeta: list[dict] = field(default_factory=list)  # [{signature, lineNumber}]
+    interfaceMeta: list[dict] = field(default_factory=list)  # [{signature, lineNumber, usedTypes}]
+    # P8-04: typedef/using aliases for this entry's scope
+    typeAliases: list[dict] = field(default_factory=list)    # [{alias, canonical, depType}]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -73,6 +75,7 @@ class BlueprintEntry:
             "attributes": self.attributes,
             "interfaces": self.interfaces,
             "interfaceMeta": self.interfaceMeta,
+            "typeAliases": self.typeAliases,
             "fileLocation": self.fileLocation,
             "lineNumber": self.lineNumber,
             "namespace": self.namespace,
@@ -209,6 +212,81 @@ def _method_signature(cursor: Any) -> str:
 
 
 # ---------------------------------------------------------------------------
+# P8-02: typedef / using alias collection
+# ---------------------------------------------------------------------------
+
+def _extract_inner_type(cursor: Any) -> str:
+    """
+    For a TYPEDEF_DECL or TYPE_ALIAS_DECL cursor, return the underlying
+    canonical type spelling (stripped of cv-qualifiers and leading '::').
+    """
+    try:
+        t = cursor.underlying_typedef_type
+        # Walk through pointer/ref wrappers to get the pointee if desired,
+        # but keep the raw spelling for template args (e.g. shared_ptr<Foo>)
+        spelling = t.spelling if t else ""
+        spelling = re.sub(r"\bconst\b|\bvolatile\b|\brestrict\b", "", spelling).strip()
+        return spelling.lstrip(":")
+    except Exception:
+        return ""
+
+
+def _dep_type_from_template(canonical: str) -> str:
+    """Infer dependency type from a template alias like shared_ptr<T>, unique_ptr<T>."""
+    c = canonical.replace(" ", "")
+    if re.search(r"\bunique_ptr\b", c):
+        return "composition"
+    if re.search(r"\b(shared_ptr|weak_ptr)\b", c):
+        return "aggregation"
+    if "*" in canonical or re.search(r"\b(raw_ptr|ptr)\b", c):
+        return "aggregation"
+    return "association"
+
+
+def _inner_template_arg(canonical: str) -> str:
+    """Extract T from shared_ptr<T>, unique_ptr<T>, etc."""
+    m = re.search(r"<([^<>]+)>", canonical)
+    if not m:
+        return ""
+    # Strip pointer/ref/cv off the inner type
+    inner = re.sub(r"\bconst\b|\bvolatile\b|\*|&", "", m.group(1)).strip().lstrip(":")
+    # Handle nested namespaces: take the last component for matching
+    return inner
+
+
+def collect_type_aliases(tu_cursor: Any) -> dict[str, dict]:
+    """
+    P8-02: Walk the translation unit (including namespaces) and collect all
+    typedef/using aliases.
+
+    Returns a dict: alias_name → {canonical, depType, innerType}
+    """
+    aliases: dict[str, dict] = {}
+
+    def _walk(cursor: Any) -> None:
+        for child in cursor.get_children():
+            if child.kind in (CursorKind.TYPEDEF_DECL, CursorKind.TYPE_ALIAS_DECL):
+                alias_name = child.spelling
+                if not alias_name:
+                    continue
+                canonical = _extract_inner_type(child)
+                if not canonical:
+                    continue
+                inner = _inner_template_arg(canonical)
+                dep_type = _dep_type_from_template(canonical)
+                aliases[alias_name] = {
+                    "canonical": canonical,
+                    "innerType": inner,
+                    "depType":   dep_type,
+                }
+            elif child.kind == CursorKind.NAMESPACE:
+                _walk(child)
+
+    _walk(tu_cursor)
+    return aliases
+
+
+# ---------------------------------------------------------------------------
 # Core visitor
 # ---------------------------------------------------------------------------
 
@@ -220,6 +298,10 @@ class ASTVisitor:
         self.project_root = os.path.abspath(project_root)
         self.entries: dict[str, BlueprintEntry] = {}  # className → entry
         self._current_class_stack: list[str] = []
+        # P8-02: typedef/using alias map built at TU parse time
+        self._type_aliases: dict[str, dict] = {}
+        # P8-05/06: synthetic entries for free functions, keyed by group key
+        self._free_fn_entries: dict[str, BlueprintEntry] = {}
 
     def _rel_path(self, abs_path: str) -> str:
         try:
@@ -240,6 +322,10 @@ class ASTVisitor:
 
     def visit(self, cursor: Any, depth: int = 0) -> None:
         """Recursively visit AST nodes."""
+        # P8-02: collect typedef/using aliases once for the whole TU
+        if depth == 0:
+            self._type_aliases = collect_type_aliases(cursor)
+
         # Index class/struct defs only when the definition sits under
         # project_root (_visit_class). The TU still includes system headers so
         # member types and bases on project classes resolve.
@@ -252,8 +338,17 @@ class ASTVisitor:
             self._visit_class(cursor)
             return  # _visit_class recurses into children itself
 
+        # P8-05: index free (non-member) functions defined in the project
+        if cursor.kind == CursorKind.FUNCTION_DECL:
+            self._visit_free_function(cursor)
+            return
+
         for child in cursor.get_children():
             self.visit(child, depth + 1)
+
+        # P8-06: after the full TU walk, promote free-function entries
+        if depth == 0:
+            self.entries.update(self._free_fn_entries)
 
     def _visit_class(self, cursor: Any) -> None:
         """Process a class/struct cursor."""
@@ -292,6 +387,7 @@ class ASTVisitor:
         interface_meta: list[dict] = []
         dependencies: list[Dependency] = []
         seen_deps: set[tuple[str, str]] = set()
+        type_aliases_used: list[dict] = []   # P8-04: aliases referenced by this class
 
         def _add_dep(target: str, dep_type: str) -> None:
             if not target or _is_trivial_type(target):
@@ -352,19 +448,39 @@ class ASTVisitor:
                             seen_deps.add(key)
                             dependencies.append(dep)
                 else:
-                    type_name = _canonical_type_name(child)
-                    if type_name and not _is_trivial_type(type_name):
-                        raw_type = child.type
-                        if raw_type.kind in (
-                            cindex.TypeKind.POINTER,
-                            cindex.TypeKind.LVALUEREFERENCE,
-                            cindex.TypeKind.RVALUEREFERENCE,
-                        ):
-                            # Raw pointer/ref → aggregation (borrowing, no ownership)
-                            _add_dep(type_name, "aggregation")
-                        else:
-                            # Value member → composition (owns by value)
-                            _add_dep(type_name, "composition")
+                    # P8-03: check if the field type is a known typedef/using alias
+                    # e.g. md_dg_t → shared_ptr<MDDriveGroup> → aggregation to MDDriveGroup
+                    bare_field_type = re.sub(
+                        r"\bconst\b|\bvolatile\b|\*|&|\s", "",
+                        (child.type.spelling or "").split("<")[0]
+                    ).lstrip(":")
+                    alias_info = self._type_aliases.get(bare_field_type)
+                    if alias_info and alias_info.get("innerType"):
+                        inner = alias_info["innerType"]
+                        dep_type = alias_info["depType"]
+                        if inner and not _is_trivial_type(inner):
+                            _add_dep(inner, dep_type)
+                            # Record this alias for the P8-04 typeAliases field
+                            alias_entry = {
+                                "alias": bare_field_type,
+                                "canonical": alias_info["canonical"],
+                            }
+                            if alias_entry not in type_aliases_used:
+                                type_aliases_used.append(alias_entry)
+                    else:
+                        type_name = _canonical_type_name(child)
+                        if type_name and not _is_trivial_type(type_name):
+                            raw_type = child.type
+                            if raw_type.kind in (
+                                cindex.TypeKind.POINTER,
+                                cindex.TypeKind.LVALUEREFERENCE,
+                                cindex.TypeKind.RVALUEREFERENCE,
+                            ):
+                                # Raw pointer/ref → aggregation (borrowing, no ownership)
+                                _add_dep(type_name, "aggregation")
+                            else:
+                                # Value member → composition (owns by value)
+                                _add_dep(type_name, "composition")
 
         # --- Public methods → interfaces ---
         for child in cursor.get_children():
@@ -430,6 +546,7 @@ class ASTVisitor:
             dependencies=dependencies,
             interfaces=interfaces,
             interfaceMeta=interface_meta,
+            typeAliases=type_aliases_used,
             fileLocation=rel_file,
             lineNumber=loc.line,
             namespace=namespace,
@@ -459,6 +576,72 @@ class ASTVisitor:
                         dependencies.append(Dependency(target=type_name, type="dependency"))
             # Recurse into compound statements
             self._scan_body_for_deps(child, seen_deps, dependencies, raw_name, class_key)
+
+    # P8-05/06/07: index free (non-member) functions
+    def _visit_free_function(self, cursor: Any) -> None:
+        """
+        Process a top-level FUNCTION_DECL and accumulate it into a synthetic
+        BlueprintEntry keyed by namespace (or bare filename when no namespace).
+        """
+        if not cursor.is_definition():
+            return
+
+        loc = cursor.location
+        if not loc.file:
+            return
+        file_abs = os.path.abspath(loc.file.name)
+        if not _is_definition_in_project(file_abs, self.project_root):
+            return
+
+        ns = _get_namespace(cursor)
+        if ns:
+            group_key = ns
+            display_name = ns
+        else:
+            basename = os.path.splitext(os.path.basename(file_abs))[0]
+            display_name = basename
+            group_key = f"__file__{file_abs}"
+
+        sig = _method_signature(cursor)
+
+        # Collect non-trivial parameter types as P8-07 dependencies
+        param_types: list[str] = []
+        for arg in cursor.get_arguments():
+            t = _canonical_type_name(arg)
+            if t and not _is_trivial_type(t) and t not in param_types:
+                param_types.append(t)
+
+        if group_key not in self._free_fn_entries:
+            rel_file = self._rel_path(file_abs)
+            self._free_fn_entries[group_key] = BlueprintEntry(
+                className=display_name,
+                responsibility="Free Functions",
+                dependencies=[],
+                interfaces=[],
+                interfaceMeta=[],
+                fileLocation=rel_file,
+                lineNumber=loc.line,
+                namespace=ns,
+                baseClasses=[],
+                templateParams=[],
+            )
+
+        entry = self._free_fn_entries[group_key]
+        if sig not in entry.interfaces:
+            entry.interfaces.append(sig)
+            entry.interfaceMeta.append({
+                "signature": sig,
+                "lineNumber": loc.line,
+                "usedTypes": param_types,
+            })
+
+        # Add association dependencies for param types
+        seen = {(d.target, d.type) for d in entry.dependencies}
+        for t in param_types:
+            k = (t, "association")
+            if k not in seen:
+                seen.add(k)
+                entry.dependencies.append(Dependency(target=t, type="association"))
 
     # Naming-convention → responsibility label (T-12)
     _RESPONSIBILITY_PATTERNS: list[tuple[re.Pattern, str]] = [

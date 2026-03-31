@@ -192,6 +192,23 @@
 
 ---
 
+## Phase 8：解析精準度與互動修正
+
+### Sprint 8.1 — 點擊節點自動展開鄰居
+- [x] **P8-01** 點擊節點時若有隱藏的相依類別（不在畫布上），自動呼叫 `expandNeighbors()` 載入它們，無需再手動點 +N badge
+
+### Sprint 8.2 — typedef / using 型別別名解析
+- [x] **P8-02** `ast_parser.py`：掃描每個 TU 的 `TYPEDEF_DECL` 與 `TYPE_ALIAS_DECL`，建立 alias → canonical type 映射表
+- [x] **P8-03** 在解析 field 型別時，若型別名稱是已知 alias，展開成原始型別（`shared_ptr<T>` → aggregation / `unique_ptr<T>` → composition）
+- [x] **P8-04** `BlueprintEntry` 新增 `typeAliases[]` 欄位（`[{alias, canonical}]`），webview 節點展開時顯示 Aliases 區段
+
+### Sprint 8.3 — 全域 / namespace 自由函數索引
+- [x] **P8-05** `ast_parser.py`：在 `visit()` 中額外處理 `FUNCTION_DECL`（project root 內、非 class member），依 namespace 分組
+- [x] **P8-06** 每個有自由函數的 namespace（無 namespace 則以檔名命名）建立一個合成 `BlueprintEntry`：`className = <namespace>` / `responsibility = "Free Functions"` / `interfaces = [函數簽名]`
+- [x] **P8-07** 自由函數的參數型別同樣產生 dependency，讓 AI 索引與圖表能呈現它與其他類別的關係
+
+---
+
 ## 優先順序（MVP 最小可行產品）
 
 > 完成以下項目即可示範核心價值：
