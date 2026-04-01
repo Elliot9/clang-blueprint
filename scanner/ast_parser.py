@@ -1138,31 +1138,38 @@ def parse_files(
             )
 
     total = len(source_files)
+    _W = len(str(total))          # field width for file counter
     _sev_names = {
         cindex.Diagnostic.Warning: "WARNING",
         cindex.Diagnostic.Error:   "ERROR",
         cindex.Diagnostic.Fatal:   "FATAL",
     }
-    _seen_diags: set[str] = set()   # deduplicate repeated diagnostics across files
-    _PROGRESS_INTERVAL = max(1, total // 100)  # report every ~1%
+    _seen_diags: set[str] = set()        # deduplicate repeated diagnostics
+    _deferred_diags: list[str] = []      # collected during scan, printed after
     _t_start = time.perf_counter()
+    _t_last_draw = _t_start - 1.0       # force immediate first draw
+
+    def _draw_progress(idx: int) -> None:
+        nonlocal _t_last_draw
+        now = time.perf_counter()
+        if idx < total and now - _t_last_draw < 0.5:
+            return   # redraw at most twice per second (always draw last frame)
+        _t_last_draw = now
+        pct     = idx / total * 100
+        filled  = int(pct / 2)           # 50-char bar
+        bar     = '█' * filled + '░' * (50 - filled)
+        elapsed = now - _t_start
+        eta     = (elapsed / idx) * (total - idx) if idx > 1 else 0
+        eta_str = f"ETA {eta:4.0f}s" if idx < total else f"{elapsed:4.0f}s elapsed"
+        print(
+            f"\r[blueprint] [{bar}] {pct:5.1f}%  "
+            f"{idx:{_W}}/{total} files  "
+            f"{len(all_entries)} classes  {eta_str}   ",
+            end='', flush=True, file=sys.stderr,
+        )
 
     for idx, src in enumerate(source_files, 1):
-        # ── Progress bar ──────────────────────────────────────────────────
-        if idx == 1 or idx % _PROGRESS_INTERVAL == 0 or idx == total:
-            pct    = idx / total * 100
-            filled = int(pct / 2)          # 50-char bar
-            bar    = '█' * filled + '░' * (50 - filled)
-            elapsed = time.perf_counter() - _t_start
-            eta = (elapsed / idx) * (total - idx) if idx > 1 else 0
-            classes_so_far = len(all_entries)
-            print(
-                f"\r[blueprint] [{bar}] {pct:5.1f}%  "
-                f"{idx:>{len(str(total))}}/{total} files  "
-                f"{classes_so_far} classes  "
-                f"ETA {eta:4.0f}s",
-                end='', flush=True, file=sys.stderr,
-            )
+        _draw_progress(idx)
 
         src_abs = os.path.abspath(src)
         raw_args = compile_db.get(src_abs, default_args)
@@ -1183,39 +1190,35 @@ def parse_files(
                 ),
             )
         except TranslationUnitLoadError as e:
-            print(f"\n[ast_parser] WARNING: Failed to parse {src}: {e}", file=sys.stderr)
+            _deferred_diags.append(f"[ast_parser] WARNING: Failed to parse {src}: {e}")
             continue
 
-        # Report diagnostics — suppress noise from transitive headers and
-        # deduplicate repeated messages (same spelling seen across many files).
+        # Collect diagnostics — deferred so they don't break the progress bar.
+        # Suppress noise from transitive headers; deduplicate repeated messages.
         for diag in tu.diagnostics:
             if diag.severity < cindex.Diagnostic.Warning:
                 continue
             diag_file = str(diag.location.file) if diag.location.file else ""
-            # Skip diagnostics from outside the project (transitive headers)
             if diag_file and not _is_definition_in_project(diag_file, project_root):
                 continue
-            # Skip diagnostics from excluded paths
             if diag_file and _is_excluded(diag_file, project_root, _exclude_patterns):
                 continue
-            # Deduplicate: same severity + message seen before → skip
             dedup_key = f"{diag.severity}:{diag.spelling}"
             if dedup_key in _seen_diags:
                 continue
             _seen_diags.add(dedup_key)
             sev = _sev_names.get(diag.severity, "NOTE")
-            print(
-                f"\n[ast_parser] {sev}: {diag.spelling} "
-                f"({diag.location.file}:{diag.location.line})",
-                file=sys.stderr,
-            )
+            loc = f"({diag.location.file}:{diag.location.line})" if diag.location.file else ""
+            _deferred_diags.append(f"[ast_parser] {sev}: {diag.spelling} {loc}")
 
         visitor = ASTVisitor(src_abs, project_root)
         visitor.visit(tu.cursor)
         all_entries.update(visitor.entries)
 
-    # End progress bar with newline
+    # End progress bar, then flush all collected diagnostics
     print(file=sys.stderr)
+    for msg in _deferred_diags:
+        print(msg, file=sys.stderr)
 
     # P14-01: Filter over-included dependencies.
     # `association` (method param/return) and `dependency` (local var) types can
