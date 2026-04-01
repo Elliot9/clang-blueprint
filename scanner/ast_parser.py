@@ -1121,6 +1121,22 @@ def parse_files(
 
     all_entries: dict[str, BlueprintEntry] = {}
 
+    # When file list comes from compile_commands.json it bypasses scan_directory's
+    # exclude filtering — apply it here so .blueprintignore / --exclude are honoured.
+    if _exclude_patterns:
+        before = len(source_files)
+        source_files = [
+            s for s in source_files
+            if not _is_excluded(s, project_root, _exclude_patterns)
+        ]
+        skipped = before - len(source_files)
+        if skipped:
+            print(
+                f"[ast_parser] Excluded {skipped} files via ignore patterns "
+                f"({len(source_files)} remaining)",
+                file=sys.stderr,
+            )
+
     total = len(source_files)
     _sev_names = {
         cindex.Diagnostic.Warning: "WARNING",
