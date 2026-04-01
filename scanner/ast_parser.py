@@ -13,6 +13,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
@@ -1120,7 +1121,33 @@ def parse_files(
 
     all_entries: dict[str, BlueprintEntry] = {}
 
-    for src in source_files:
+    total = len(source_files)
+    _sev_names = {
+        cindex.Diagnostic.Warning: "WARNING",
+        cindex.Diagnostic.Error:   "ERROR",
+        cindex.Diagnostic.Fatal:   "FATAL",
+    }
+    _seen_diags: set[str] = set()   # deduplicate repeated diagnostics across files
+    _PROGRESS_INTERVAL = max(1, total // 100)  # report every ~1%
+    _t_start = time.perf_counter()
+
+    for idx, src in enumerate(source_files, 1):
+        # ── Progress bar ──────────────────────────────────────────────────
+        if idx == 1 or idx % _PROGRESS_INTERVAL == 0 or idx == total:
+            pct    = idx / total * 100
+            filled = int(pct / 2)          # 50-char bar
+            bar    = '█' * filled + '░' * (50 - filled)
+            elapsed = time.perf_counter() - _t_start
+            eta = (elapsed / idx) * (total - idx) if idx > 1 else 0
+            classes_so_far = len(all_entries)
+            print(
+                f"\r[blueprint] [{bar}] {pct:5.1f}%  "
+                f"{idx:>{len(str(total))}}/{total} files  "
+                f"{classes_so_far} classes  "
+                f"ETA {eta:4.0f}s",
+                end='', flush=True, file=sys.stderr,
+            )
+
         src_abs = os.path.abspath(src)
         raw_args = compile_db.get(src_abs, default_args)
         # Filter GCC-only flags; append analysis flags AFTER so they win
@@ -1140,37 +1167,39 @@ def parse_files(
                 ),
             )
         except TranslationUnitLoadError as e:
-            print(f"[ast_parser] WARNING: Failed to parse {src}: {e}", file=sys.stderr)
+            print(f"\n[ast_parser] WARNING: Failed to parse {src}: {e}", file=sys.stderr)
             continue
 
-        # Report diagnostics at warning level — only for files inside project_root
-        # and not matching exclude patterns. Third-party headers pulled in via
-        # #include will still be processed by libclang but their warnings are
-        # suppressed here to avoid noise from vendored code.
-        _sev_names = {
-            cindex.Diagnostic.Warning: "WARNING",
-            cindex.Diagnostic.Error: "ERROR",
-            cindex.Diagnostic.Fatal: "FATAL",
-        }
+        # Report diagnostics — suppress noise from transitive headers and
+        # deduplicate repeated messages (same spelling seen across many files).
         for diag in tu.diagnostics:
-            if diag.severity >= cindex.Diagnostic.Warning:
-                diag_file = str(diag.location.file) if diag.location.file else ""
-                # Skip diagnostics from outside the project (transitive headers)
-                if diag_file and not _is_definition_in_project(diag_file, project_root):
-                    continue
-                # Skip diagnostics from excluded paths
-                if diag_file and _is_excluded(diag_file, project_root, _exclude_patterns):
-                    continue
-                sev = _sev_names.get(diag.severity, "NOTE")
-                print(
-                    f"[ast_parser] {sev}: {diag.spelling} "
-                    f"({diag.location.file}:{diag.location.line})",
-                    file=sys.stderr,
-                )
+            if diag.severity < cindex.Diagnostic.Warning:
+                continue
+            diag_file = str(diag.location.file) if diag.location.file else ""
+            # Skip diagnostics from outside the project (transitive headers)
+            if diag_file and not _is_definition_in_project(diag_file, project_root):
+                continue
+            # Skip diagnostics from excluded paths
+            if diag_file and _is_excluded(diag_file, project_root, _exclude_patterns):
+                continue
+            # Deduplicate: same severity + message seen before → skip
+            dedup_key = f"{diag.severity}:{diag.spelling}"
+            if dedup_key in _seen_diags:
+                continue
+            _seen_diags.add(dedup_key)
+            sev = _sev_names.get(diag.severity, "NOTE")
+            print(
+                f"\n[ast_parser] {sev}: {diag.spelling} "
+                f"({diag.location.file}:{diag.location.line})",
+                file=sys.stderr,
+            )
 
         visitor = ASTVisitor(src_abs, project_root)
         visitor.visit(tu.cursor)
         all_entries.update(visitor.entries)
+
+    # End progress bar with newline
+    print(file=sys.stderr)
 
     # P14-01: Filter over-included dependencies.
     # `association` (method param/return) and `dependency` (local var) types can
