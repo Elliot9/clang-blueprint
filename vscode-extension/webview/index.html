@@ -1313,7 +1313,9 @@ function _populateMethodSelect(className) {
   if (!sel) return;
   const entry = allEntries.find(e => e.className === className);
   if (!entry) { sel.innerHTML = '<option value="">— any —</option>'; return; }
-  const methods = [...(entry.interfaces || []), ...(entry.privateMethods || [])];
+  // privateMethods are objects {signature, lineNumber, ...} — extract signature
+  const privSigs = (entry.privateMethods || []).map(m => (typeof m === 'object' ? m.signature : m));
+  const methods = [...(entry.interfaces || []), ...privSigs];
   sel.innerHTML = '<option value="">— any —</option>' +
     methods.map(m => `<option value="${_esc(m)}">${_esc(m.length > 58 ? m.slice(0,58)+'…' : m)}</option>`).join('');
 }
@@ -2034,7 +2036,7 @@ function renderAll() {
   const classSet  = new Set(visible.map(e => e.className));
 
   visible.forEach(entry => {
-    const pos = positions[entry.className];
+    const pos = positions[entry.className] || { x: 0, y: 0, w: 240, h: 50 };
     const el  = createNodeEl(entry);
     el.style.left  = pos.x + 'px';
     el.style.top   = pos.y + 'px';

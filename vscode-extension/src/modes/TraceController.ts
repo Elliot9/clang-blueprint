@@ -60,9 +60,14 @@ export class TraceController implements ModeController {
 
     const subgraph = buildTraceContext(className, hops, this.allEntries, this.reverseDeps);
     const focalEntry = this.allEntries.find(e => e.className === className);
-    const callChain = focalEntry && methodSignature
-      ? (focalEntry.callSequence?.[methodSignature] ?? [])
-      : [];
+    // callSequence lives inside interfaceMeta / privateMethods per-method objects,
+    // NOT at the top-level ClassEntry — look it up by signature.
+    let callChain: import('../shared/types').CallStep[] = [];
+    if (focalEntry && methodSignature) {
+      const pubMeta = focalEntry.interfaceMeta?.find(m => m.signature === methodSignature);
+      const privMeta = focalEntry.privateMethods?.find(m => m.signature === methodSignature);
+      callChain = pubMeta?.callSequence ?? privMeta?.callSequence ?? [];
+    }
     const explanation = await this.provider.explainChain(callChain, subgraph);
 
     this.panel.webview.postMessage({

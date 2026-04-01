@@ -23,6 +23,20 @@ export interface MethodMeta {
   lineNumber: number;
   /** Types used as parameters or return type — for badge display (P5-01) */
   usedTypes?: string[];
+  /** Ordered member-access / call sequence from the method body (P9-02) */
+  callSequence?: CallStep[];
+}
+
+/**
+ * Private / protected method metadata produced by the scanner (P10-01).
+ * Mirrors MethodMeta but adds an `access` discriminator.
+ */
+export interface PrivateMethodMeta {
+  signature: string;
+  lineNumber: number;
+  access: 'protected' | 'private';
+  usedTypes?: string[];
+  callSequence?: CallStep[];
 }
 
 /** A single step in a method's call sequence (P9-02 / P11-01) */
@@ -48,14 +62,11 @@ export interface ClassEntry {
   // Member sections (P10-01)
   attributes?: string[];         // formatted field declarations
   interfaces: string[];          // public method signatures (string form)
-  interfaceMeta?: MethodMeta[];  // rich per-method metadata
-  privateMethods?: string[];
+  interfaceMeta?: MethodMeta[];       // rich per-method metadata (public)
+  privateMethods?: PrivateMethodMeta[]; // protected/private method metadata
 
   // Type aliases discovered in this class (P8-04)
   typeAliases?: Array<{ alias: string; underlying: string }>;
-
-  // Per-method call sequences (P9-02) — keyed by method signature
-  callSequence?: Record<string, CallStep[]>;
 }
 
 // ---------------------------------------------------------------------------

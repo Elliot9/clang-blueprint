@@ -59,7 +59,8 @@ function _inferIntent(entry: ClassEntry): string {
 
   // If responsibility label is already meaningful (not generic), use it
   if (responsibility && responsibility !== 'Unknown' && responsibility !== '') {
-    const role = _methodRole([...entry.interfaces, ...(entry.privateMethods ?? [])]);
+    const privSigs = (entry.privateMethods ?? []).map(m => m.signature);
+    const role = _methodRole([...entry.interfaces, ...privSigs]);
     const deps = entry.dependencies.filter(d => d.type === 'composition').map(d => d.target);
     if (deps.length > 0) {
       return `${responsibility} — manages ${deps.slice(0, 3).join(', ')}`;
@@ -68,7 +69,8 @@ function _inferIntent(entry: ClassEntry): string {
   }
 
   // Fall back to method-name heuristic
-  const allMethods = [...entry.interfaces, ...(entry.privateMethods ?? [])];
+  const privSigs = (entry.privateMethods ?? []).map(m => m.signature);
+  const allMethods = [...entry.interfaces, ...privSigs];
   const role = _methodRole(allMethods);
   if (role) {
     return `${cls} — ${role}`;
