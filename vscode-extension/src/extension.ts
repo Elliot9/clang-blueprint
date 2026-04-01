@@ -1,688 +1,137 @@
 /**
- * extension.ts — Clang Blueprint VS Code extension entry point.
+ * extension.ts — Clang Blueprint extension entry point.
  *
- * Registers commands, opens the React Flow WebviewPanel, handles
- * node-click jump-to-file, and watches blueprint_index.json for changes.
+ * This file is intentionally thin: it registers VS Code commands and wires
+ * them to AppShell. All business logic lives in shell/, modes/, and ai/.
  */
 
-import * as vscode from "vscode";
-import * as fs from "fs";
-import * as path from "path";
+import * as vscode from 'vscode';
+import { AppShell } from './shell/AppShell';
 
-// ---------------------------------------------------------------------------
-// Types mirroring the blueprint_index schema
-// ---------------------------------------------------------------------------
-
-interface Dependency {
-  target: string;
-  type: "composition" | "inheritance" | "association" | "dependency";
-}
-
-interface MethodMeta {
-  signature: string;
-  lineNumber: number;
-}
-
-interface BlueprintEntry {
-  className: string;
-  responsibility: string;
-  dependencies: Dependency[];
-  /** Member fields: visibility (+/#/-) + type + name (from FIELD_DECL). */
-  attributes?: string[];
-  interfaces: string[];
-  /** UI-08: per-method line numbers for click-to-source */
-  interfaceMeta?: MethodMeta[];
-  fileLocation: string;
-  lineNumber: number;
-  namespace: string;
-  baseClasses: string[];
-  templateParams: string[];
-}
-
-// Messages sent from extension → webview
-type ExtensionMessage =
-  | { type: "loadEntries"; entries: BlueprintEntry[]; totalCount?: number }
-  | { type: "filter"; pattern: string }
-  | { type: "highlight"; className: string }
-  | { type: "layoutDirection"; direction: "TB" | "LR" | "BT" | "RL" };
-
-// Messages sent from webview → extension
-type WebviewMessage =
-  | { type: "nodeClick"; fileLocation: string; lineNumber: number; className: string }
-  | { type: "ready" }
-  | { type: "search"; pattern: string }
-  | { type: "copyText"; text: string }
-  | { type: "error"; message: string };
-
-// ---------------------------------------------------------------------------
-// State
-// ---------------------------------------------------------------------------
-
-let diagramPanel: vscode.WebviewPanel | undefined;
-let fileWatcher: vscode.FileSystemWatcher | undefined;
-let cachedEntries: BlueprintEntry[] = [];          // T-34: for cursor-to-class lookup
-let selectionDebounce: ReturnType<typeof setTimeout> | undefined;
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function getConfig<T>(key: string): T {
-  return vscode.workspace.getConfiguration("clangBlueprint").get<T>(key) as T;
-}
-
-function getBlueprintIndexPath(workspaceRoot: string): string {
-  const configPath = getConfig<string>("blueprintIndexPath");
-  return path.isAbsolute(configPath)
-    ? configPath
-    : path.join(workspaceRoot, configPath);
-}
-
-function loadBlueprintEntries(indexPath: string): BlueprintEntry[] {
-  try {
-    if (!fs.existsSync(indexPath)) {
-      return [];
-    }
-    const raw = fs.readFileSync(indexPath, "utf-8");
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      throw new Error("blueprint_index.json must be a JSON array");
-    }
-    return parsed as BlueprintEntry[];
-  } catch (err) {
-    vscode.window.showErrorMessage(`Clang Blueprint: Failed to load index: ${err}`);
-    return [];
-  }
-}
-
-function getWorkspaceRoot(): string | undefined {
-  const folders = vscode.workspace.workspaceFolders;
-  return folders?.[0]?.uri.fsPath;
-}
-
-// ---------------------------------------------------------------------------
-// WebviewPanel management
-// ---------------------------------------------------------------------------
-
-function getWebviewContent(
-  webview: vscode.Webview,
-  extensionUri: vscode.Uri
-): string {
-  // Load the self-contained HTML from the webview folder
-  const htmlPath = vscode.Uri.joinPath(extensionUri, "webview", "index.html");
-  try {
-    const html = fs.readFileSync(htmlPath.fsPath, "utf-8");
-    // Replace any local resource URIs if needed (CDN-only build doesn't need this)
-    return html;
-  } catch {
-    // Inline fallback if the file isn't available
-    return `<!DOCTYPE html>
-<html>
-<body style="background:#1e1e1e;color:#ccc;font-family:sans-serif;padding:2rem;">
-  <h2>Clang Blueprint</h2>
-  <p>Webview HTML not found. Build the extension first.</p>
-</body>
-</html>`;
-  }
-}
-
-function createOrShowPanel(context: vscode.ExtensionContext): vscode.WebviewPanel {
-  if (diagramPanel) {
-    diagramPanel.reveal(vscode.ViewColumn.Beside);
-    return diagramPanel;
-  }
-
-  diagramPanel = vscode.window.createWebviewPanel(
-    "clangBlueprintDiagram",
-    "Blueprint: Class Diagram",
-    vscode.ViewColumn.Beside,
-    {
-      enableScripts: true,
-      retainContextWhenHidden: true,
-      localResourceRoots: [
-        vscode.Uri.joinPath(context.extensionUri, "webview"),
-      ],
-    }
-  );
-
-  diagramPanel.iconPath = vscode.ThemeIcon.File;
-  diagramPanel.webview.html = getWebviewContent(
-    diagramPanel.webview,
-    context.extensionUri
-  );
-
-  // Handle messages from the webview
-  diagramPanel.webview.onDidReceiveMessage(
-    (message: WebviewMessage) => {
-      switch (message.type) {
-        case "ready":
-          // Webview is ready — send the current entries
-          sendEntriesToWebview(diagramPanel!, context);
-          break;
-
-        case "nodeClick":
-          handleNodeClick(message.fileLocation, message.lineNumber, message.className);
-          break;
-
-        case "search":
-          handleSearch(diagramPanel!, message.pattern, context);
-          break;
-
-        case "copyText":
-          vscode.env.clipboard.writeText(message.text).then(() => {
-            vscode.window.setStatusBarMessage("$(clippy) Blueprint: Mermaid syntax copied", 3000);
-          });
-          break;
-
-        case "error":
-          vscode.window.showErrorMessage(`Blueprint webview error: ${message.message}`);
-          break;
-      }
-    },
-    undefined,
-    context.subscriptions
-  );
-
-  // Clean up when panel is closed
-  diagramPanel.onDidDispose(
-    () => {
-      diagramPanel = undefined;
-    },
-    undefined,
-    context.subscriptions
-  );
-
-  return diagramPanel;
-}
-
-function sendEntriesToWebview(
-  panel: vscode.WebviewPanel,
-  _context: vscode.ExtensionContext
-): void {
-  const root = getWorkspaceRoot();
-  if (!root) {
-    return;
-  }
-  const indexPath = getBlueprintIndexPath(root);
-  const entries = loadBlueprintEntries(indexPath);
-  const maxClasses = getConfig<number>("maxClassesInDiagram") ?? 100;
-  const layoutDirection = getConfig<"TB" | "LR" | "BT" | "RL">("layoutDirection") ?? "TB";
-
-  // For large codebases send a limited initial set; search queries are handled
-  // server-side via the "search" webview message → handleSearch().
-  const sendEntries = entries.length > 5000 ? entries.slice(0, maxClasses) : entries;
-  const msg: ExtensionMessage = {
-    type: "loadEntries",
-    entries: sendEntries,
-    totalCount: entries.length,
-  };
-  // Store full entries for search
-  cachedEntries = entries;
-  panel.webview.postMessage(msg);
-
-  // Also send layout direction
-  panel.webview.postMessage({
-    type: "layoutDirection",
-    direction: layoutDirection,
-  } as ExtensionMessage);
-
-  if (entries.length === 0) {
-    vscode.window.showWarningMessage(
-      `Clang Blueprint: No entries found at ${indexPath}. Run "Blueprint: Rebuild Index" first.`
-    );
-  } else {
-    panel.title = `Blueprint: Class Diagram (${entries.length} classes)`;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Server-side search for large codebases
-// ---------------------------------------------------------------------------
-
-function handleSearch(
-  panel: vscode.WebviewPanel,
-  pattern: string,
-  _context: vscode.ExtensionContext
-): void {
-  if (!pattern || !cachedEntries.length) { return; }
-  let matched: BlueprintEntry[];
-  try {
-    const re = new RegExp(pattern, "i");
-    matched = cachedEntries.filter((e) => re.test(e.className));
-  } catch {
-    return;
-  }
-  // Include 1-hop neighbors
-  const neighborNames = new Set<string>();
-  matched.forEach((e) => {
-    e.dependencies.forEach((d) => neighborNames.add(d.target));
-    e.baseClasses.forEach((b) => neighborNames.add(b));
-  });
-  const matchedNames = new Set(matched.map((e) => e.className));
-  const neighbors = cachedEntries.filter(
-    (e) => !matchedNames.has(e.className) && neighborNames.has(e.className)
-  );
-  panel.webview.postMessage({
-    type: "loadEntries",
-    entries: [...matched, ...neighbors],
-    totalCount: cachedEntries.length,
-  } as ExtensionMessage);
-}
-
-// ---------------------------------------------------------------------------
-// T-34: cursor → class lookup helper
-// ---------------------------------------------------------------------------
-
-function findClassAtCursor(
-  document: vscode.TextDocument,
-  position: vscode.Position
-): BlueprintEntry | undefined {
-  if (!cachedEntries.length) { return undefined; }
-  const root = getWorkspaceRoot();
-  if (!root) { return undefined; }
-
-  const docAbs  = document.uri.fsPath;
-  const curLine = position.line + 1; // convert to 1-based
-
-  // Normalise separators for cross-platform comparison
-  const norm = (p: string) => p.replace(/\\/g, "/");
-  const docNorm = norm(docAbs);
-
-  // Candidates: entries whose fileLocation resolves to the current file
-  const candidates = cachedEntries.filter((e) => {
-    const entryAbs = norm(
-      path.isAbsolute(e.fileLocation)
-        ? e.fileLocation
-        : path.join(root, e.fileLocation)
-    );
-    return entryAbs === docNorm;
-  });
-
-  if (!candidates.length) { return undefined; }
-
-  // Closest class definition line that is ≤ cursor position
-  let best: BlueprintEntry | undefined;
-  let bestDist = Infinity;
-  for (const c of candidates) {
-    const dist = curLine - c.lineNumber;
-    if (dist >= 0 && dist < bestDist) {
-      bestDist = dist;
-      best = c;
-    }
-  }
-  return best;
-}
-
-// ---------------------------------------------------------------------------
-// Jump-to-definition
-// ---------------------------------------------------------------------------
-
-async function handleNodeClick(
-  fileLocation: string,
-  lineNumber: number,
-  _className: string
-): Promise<void> {
-  const root = getWorkspaceRoot();
-  if (!root) {
-    vscode.window.showErrorMessage("No workspace folder open.");
-    return;
-  }
-
-  const absolutePath = path.isAbsolute(fileLocation)
-    ? fileLocation
-    : path.join(root, fileLocation);
-
-  if (!fs.existsSync(absolutePath)) {
-    vscode.window.showErrorMessage(
-      `Blueprint: File not found: ${absolutePath}`
-    );
-    return;
-  }
-
-  try {
-    const doc = await vscode.workspace.openTextDocument(absolutePath);
-    const line = Math.max(0, lineNumber - 1); // VS Code uses 0-based lines
-    const range = new vscode.Range(line, 0, line, 0);
-    await vscode.window.showTextDocument(doc, {
-      viewColumn: vscode.ViewColumn.One,
-      selection: range,
-      preserveFocus: false,
-    });
-    // Reveal the line in the editor
-    const editor = vscode.window.visibleTextEditors.find(
-      (e) => e.document.uri.fsPath === absolutePath
-    );
-    if (editor) {
-      editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
-      // Briefly highlight the line
-      const decoration = vscode.window.createTextEditorDecorationType({
-        backgroundColor: new vscode.ThemeColor("editor.findMatchHighlightBackground"),
-        isWholeLine: true,
-      });
-      editor.setDecorations(decoration, [range]);
-      setTimeout(() => decoration.dispose(), 2000);
-    }
-  } catch (err) {
-    vscode.window.showErrorMessage(
-      `Blueprint: Failed to open ${absolutePath}: ${err}`
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// File watcher
-// ---------------------------------------------------------------------------
-
-function setupFileWatcher(context: vscode.ExtensionContext): void {
-  // Dispose existing watcher
-  fileWatcher?.dispose();
-
-  const root = getWorkspaceRoot();
-  if (!root) {
-    return;
-  }
-
-  const indexRelPath = getConfig<string>("blueprintIndexPath");
-  const pattern = new vscode.RelativePattern(root, indexRelPath);
-
-  fileWatcher = vscode.workspace.createFileSystemWatcher(pattern);
-
-  const onIndexChanged = () => {
-    const autoReload = getConfig<boolean>("autoReloadOnChange");
-    if (!autoReload || !diagramPanel) {
-      return;
-    }
-    // Debounce: wait 500ms after last change
-    setTimeout(() => {
-      if (diagramPanel) {
-        sendEntriesToWebview(diagramPanel, context);
-        vscode.window.setStatusBarMessage("$(refresh) Blueprint: diagram reloaded", 3000);
-      }
-    }, 500);
-  };
-
-  fileWatcher.onDidChange(onIndexChanged, undefined, context.subscriptions);
-  fileWatcher.onDidCreate(onIndexChanged, undefined, context.subscriptions);
-
-  context.subscriptions.push(fileWatcher);
-}
-
-// ---------------------------------------------------------------------------
-// Extension activation
-// ---------------------------------------------------------------------------
+let shell: AppShell | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
-  // T-39: measure activation time
-  const _activationStart = Date.now();
+  const activationStart = Date.now();
 
-  // Set up file watcher for auto-reload
-  setupFileWatcher(context);
+  shell = new AppShell(context);
+  shell.setupWatcher();
 
   // Re-create watcher when workspace config changes
   context.subscriptions.push(
-    vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration("clangBlueprint")) {
-        setupFileWatcher(context);
+    vscode.workspace.onDidChangeConfiguration(e => {
+      if (e.affectsConfiguration('clangBlueprint')) {
+        shell?.setupWatcher();
       }
-    })
+    }),
   );
 
-  // ---- Command: showDiagram ----
+  // ---- showDiagram ----
   context.subscriptions.push(
-    vscode.commands.registerCommand("clangBlueprint.showDiagram", () => {
-      const panel = createOrShowPanel(context);
-      sendEntriesToWebview(panel, context);
-    })
+    vscode.commands.registerCommand('clangBlueprint.showDiagram', () => {
+      shell?.showDiagram();
+    }),
   );
 
-  // ---- Command: jumpToDefinition ----
+  // ---- jumpToDefinition ----
   context.subscriptions.push(
-    vscode.commands.registerCommand(
-      "clangBlueprint.jumpToDefinition",
-      async () => {
-        const root = getWorkspaceRoot();
-        if (!root) {
-          vscode.window.showErrorMessage("No workspace folder open.");
-          return;
-        }
-        const indexPath = getBlueprintIndexPath(root);
-        const entries = loadBlueprintEntries(indexPath);
-        if (entries.length === 0) {
-          vscode.window.showWarningMessage("No blueprint entries loaded.");
-          return;
-        }
-
-        // Quick pick from class names
-        const items = entries.map((e) => ({
-          label: e.className,
-          description: e.namespace ? `${e.namespace}::${e.className}` : e.className,
-          detail: `${e.fileLocation}:${e.lineNumber} — ${e.responsibility}`,
-          entry: e,
-        }));
-
-        const picked = await vscode.window.showQuickPick(items, {
-          placeHolder: "Search classes...",
-          matchOnDescription: true,
-          matchOnDetail: true,
-        });
-
-        if (picked) {
-          await handleNodeClick(
-            picked.entry.fileLocation,
-            picked.entry.lineNumber,
-            picked.entry.className
-          );
-        }
-      }
-    )
+    vscode.commands.registerCommand('clangBlueprint.jumpToDefinition', () => {
+      shell?.jumpToDefinition();
+    }),
   );
 
-  // ---- Command: rebuildIndex ----
+  // ---- rebuildIndex ----
   context.subscriptions.push(
-    vscode.commands.registerCommand("clangBlueprint.rebuildIndex", async () => {
-      const aiServerUrl = getConfig<string>("aiServerUrl");
+    vscode.commands.registerCommand('clangBlueprint.rebuildIndex', async () => {
+      const cfg = vscode.workspace.getConfiguration('clangBlueprint');
+      const aiServerUrl = cfg.get<string>('aiServerUrl') ?? '';
+      const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 
-      // Also trigger a Python scan if a terminal is available
-      const root = getWorkspaceRoot();
       if (root) {
-        const excludePaths = getConfig<string[]>("excludePaths") ?? [];
-        const excludeArgs = excludePaths
-          .map(p => `--exclude "${p}"`)
-          .join(" ");
-        const terminal = vscode.window.createTerminal("Blueprint Rebuild");
+        const excludePaths = cfg.get<string[]>('excludePaths') ?? [];
+        const excludeArgs = excludePaths.map(p => `--exclude "${p}"`).join(' ');
+        const terminal = vscode.window.createTerminal('Blueprint Rebuild');
         terminal.show();
         terminal.sendText(
-          `cd "${root}" && python3 -m scanner.main scan --project-root . --output blueprint_index.json${excludeArgs ? " " + excludeArgs : ""}`
+          `cd "${root}" && python3 -m scanner.main scan --project-root . --output blueprint_index.json${excludeArgs ? ' ' + excludeArgs : ''}`,
         );
       }
 
-      // Rebuild the AI server index
-      const rebuildUrl = `${aiServerUrl}/rebuild-index`;
-      vscode.window.setStatusBarMessage("$(sync~spin) Blueprint: rebuilding index...", 5000);
-
+      vscode.window.setStatusBarMessage('$(sync~spin) Blueprint: rebuilding index…', 5000);
       try {
-        /* eslint-disable @typescript-eslint/no-explicit-any */
-        const { default: fetch } = await import("node-fetch" as any).catch(() => ({
-          default: null,
-        }));
-
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { default: fetch } = await import('node-fetch' as any).catch(() => ({ default: null }));
         if (fetch) {
-          const response = await (fetch as any)(rebuildUrl, { method: "POST" });
-          /* eslint-disable @typescript-eslint/no-explicit-any */
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const response = await (fetch as any)(`${aiServerUrl}/rebuild-index`, { method: 'POST' });
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           if ((response as any).ok) {
-            const data = await (response as any).json();
-            /* eslint-enable @typescript-eslint/no-explicit-any */
-            vscode.window.showInformationMessage(
-              `Blueprint: Index rebuilt — ${data.num_entries} entries in ${data.elapsed_ms}ms`
-            );
-          } else {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const status = (response as any).status as number;
-            vscode.window.showWarningMessage(
-              `Blueprint: AI server responded with ${status}. Index may be stale.`
+            const data = await (response as any).json();
+            vscode.window.showInformationMessage(
+              `Blueprint: Index rebuilt — ${data.num_entries} entries in ${data.elapsed_ms}ms`,
             );
           }
         } else {
-          vscode.window.showInformationMessage(
-            "Blueprint: Scan started in terminal. Reload the diagram after completion."
-          );
+          vscode.window.showInformationMessage('Blueprint: Scan started in terminal. Reload the diagram after completion.');
         }
-      } catch (err) {
+      } catch {
         vscode.window.showWarningMessage(
-          `Blueprint: Could not reach AI server at ${aiServerUrl}. ` +
-          `Run 'uvicorn ai_api.server:app' to enable AI queries.`
+          `Blueprint: Could not reach AI server at ${aiServerUrl}. Run 'uvicorn ai_api.server:app' to enable AI queries.`,
         );
       }
-    })
+    }),
   );
 
-  // ---- Command: filterDiagram ----
+  // ---- filterDiagram ----
   context.subscriptions.push(
-    vscode.commands.registerCommand("clangBlueprint.filterDiagram", async () => {
-      if (!diagramPanel) {
-        vscode.window.showInformationMessage(
-          "Open the diagram first with 'Blueprint: Show Class Diagram'."
-        );
-        return;
-      }
-
-      const pattern = await vscode.window.showInputBox({
-        prompt: "Filter classes by name pattern (regex)",
-        placeHolder: "e.g. Manager, ^Disk, .*Driver$",
-      });
-
-      if (pattern !== undefined) {
-        diagramPanel.webview.postMessage({
-          type: "filter",
-          pattern,
-        } as ExtensionMessage);
-      }
-    })
+    vscode.commands.registerCommand('clangBlueprint.filterDiagram', () => {
+      shell?.filterDiagram();
+    }),
   );
 
-  // ---- T-34: editor selection → webview highlight ----
+  // ---- highlightUpstream / highlightDownstream ----
   context.subscriptions.push(
-    vscode.window.onDidChangeTextEditorSelection((event) => {
+    vscode.commands.registerCommand('clangBlueprint.highlightUpstream', () => {
+      // TODO P16-03: delegate to TraceController
+    }),
+    vscode.commands.registerCommand('clangBlueprint.highlightDownstream', () => {
+      // TODO P16-03: delegate to TraceController
+    }),
+  );
+
+  // ---- openSettings ----
+  context.subscriptions.push(
+    vscode.commands.registerCommand('clangBlueprint.openSettings', () => {
+      vscode.commands.executeCommand('workbench.action.openSettings', 'clangBlueprint');
+    }),
+  );
+
+  // ---- Cursor tracking (T-34) ----
+  context.subscriptions.push(
+    vscode.window.onDidChangeTextEditorSelection(event => {
       const doc = event.textEditor.document;
-      // Only act on C/C++ files
-      if (!["cpp", "c", "cxx"].includes(doc.languageId)) { return; }
-      if (!diagramPanel) { return; }
-
-      // Debounce: wait 300 ms after last cursor move
-      if (selectionDebounce) { clearTimeout(selectionDebounce); }
-      selectionDebounce = setTimeout(() => {
-        const position = event.selections[0]?.active;
-        if (!position) { return; }
-        const entry = findClassAtCursor(doc, position);
-        if (entry) {
-          diagramPanel?.webview.postMessage({
-            type: "highlight",
-            className: entry.className,
-          } as ExtensionMessage);
-        }
-      }, 300);
-    })
+      if (!['cpp', 'c', 'cxx', 'h', 'hpp'].includes(doc.languageId)) { return; }
+      const position = event.selections[0]?.active;
+      if (position) { shell?.onCursorMove(doc, position); }
+    }),
   );
 
-  // ---- T-35: highlightUpstream command ----
-  context.subscriptions.push(
-    vscode.commands.registerCommand(
-      "clangBlueprint.highlightUpstream",
-      async () => {
-        if (!diagramPanel) {
-          vscode.window.showInformationMessage(
-            "Open the diagram first with 'Blueprint: Show Class Diagram'."
-          );
-          return;
-        }
-        const className = await _pickClass("Highlight upstream callers of…");
-        if (className) {
-          diagramPanel.webview.postMessage({
-            type: "highlightUpstream",
-            className,
-          });
-        }
-      }
-    )
-  );
-
-  // ---- T-35: highlightDownstream command ----
-  context.subscriptions.push(
-    vscode.commands.registerCommand(
-      "clangBlueprint.highlightDownstream",
-      async () => {
-        if (!diagramPanel) {
-          vscode.window.showInformationMessage(
-            "Open the diagram first with 'Blueprint: Show Class Diagram'."
-          );
-          return;
-        }
-        const className = await _pickClass("Highlight downstream dependencies of…");
-        if (className) {
-          diagramPanel.webview.postMessage({
-            type: "highlightDownstream",
-            className,
-          });
-        }
-      }
-    )
-  );
-
-  // ---- Command: openSettings ----
-  context.subscriptions.push(
-    vscode.commands.registerCommand("clangBlueprint.openSettings", () => {
-      vscode.commands.executeCommand(
-        "workbench.action.openSettings",
-        "clangBlueprint"
-      );
-    })
-  );
-
-  // T-39: report activation time; warn if > 2000ms
-  const _activationMs = Date.now() - _activationStart;
-  console.log(`[clang-blueprint] Activated in ${_activationMs}ms`);
-  if (_activationMs > 2000) {
-    console.warn(
-      `[clang-blueprint] Activation took ${_activationMs}ms — exceeds 2s target. ` +
-      "Consider deferring heavy work until first command use."
-    );
-  }
-
-  // Status bar item
-  const statusBar = vscode.window.createStatusBarItem(
-    vscode.StatusBarAlignment.Right,
-    100
-  );
-  statusBar.text = "$(type-hierarchy) Blueprint";
-  statusBar.tooltip = "Show Clang Blueprint Diagram";
-  statusBar.command = "clangBlueprint.showDiagram";
+  // ---- Status bar ----
+  const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+  statusBar.text = '$(type-hierarchy) Blueprint';
+  statusBar.tooltip = 'Show Clang Blueprint Diagram';
+  statusBar.command = 'clangBlueprint.showDiagram';
   statusBar.show();
   context.subscriptions.push(statusBar);
-}
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-async function _pickClass(placeholder: string): Promise<string | undefined> {
-  if (!cachedEntries.length) {
-    vscode.window.showWarningMessage("No blueprint entries loaded.");
-    return undefined;
+  const ms = Date.now() - activationStart;
+  console.log(`[clang-blueprint] Activated in ${ms}ms`);
+  if (ms > 2000) {
+    console.warn(`[clang-blueprint] Activation took ${ms}ms — exceeds 2s target.`);
   }
-  const items = cachedEntries.map((e) => ({
-    label: e.className,
-    description: e.namespace || "",
-    detail: e.responsibility,
-  }));
-  const picked = await vscode.window.showQuickPick(items, {
-    placeHolder: placeholder,
-    matchOnDescription: true,
-  });
-  return picked?.label;
 }
 
 export function deactivate(): void {
-  if (selectionDebounce) { clearTimeout(selectionDebounce); }
-  fileWatcher?.dispose();
-  diagramPanel?.dispose();
+  shell?.dispose();
+  shell = undefined;
 }

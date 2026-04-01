@@ -80,9 +80,10 @@
     /* ── Canvas ── */
     #canvas-container {
       position: absolute;
-      top: 40px; left: 0; right: 0; bottom: 0;
+      top: 40px; left: 240px; right: 290px; bottom: 0;
       overflow: hidden;
       cursor: grab;
+      transition: left 0.15s ease, right 0.15s ease;
     }
     #canvas-container.panning { cursor: grabbing; }
 
@@ -519,7 +520,7 @@
     /* ── Minimap ── */
     #minimap {
       position: fixed;
-      bottom: 16px; right: 16px;
+      bottom: 16px; right: 306px; /* right panel width + margin */
       width: 160px; height: 110px;
       background: rgba(37,37,38,0.9);
       border: 1px solid #3e3e3e;
@@ -576,6 +577,317 @@
     .ctx-item:hover { background: #094771; }
     .ctx-item.sep { border-top: 1px solid #444; margin-top: 4px; padding-top: 10px; }
 
+    /* ── Mode Bar ── */
+    #mode-bar {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      margin-right: 10px;
+      padding-right: 10px;
+      border-right: 1px solid #3e3e3e;
+    }
+    .mode-btn {
+      background: none;
+      border: 1px solid transparent;
+      color: #888;
+      padding: 3px 12px;
+      border-radius: 3px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      letter-spacing: 0.3px;
+    }
+    .mode-btn:hover { color: #d4d4d4; border-color: #555; }
+    .mode-btn.mode-active { border-color: #007acc; color: #4fc3f7; background: rgba(0,122,204,0.15); }
+
+    /* ── Left Panel (populated by F1/G1/H2) ── */
+    #left-panel {
+      position: fixed;
+      top: 40px; left: 0; bottom: 0;
+      width: 0;
+      background: #252526;
+      border-right: 1px solid #3c3c3c;
+      z-index: 25;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      font-size: 11px;
+      transition: width 0.15s ease;
+    }
+    #left-panel.open { width: 240px; overflow-y: auto; }
+
+    /* ── Right Panel (populated by F3/G2/H1) ── */
+    #right-panel {
+      position: fixed;
+      top: 40px; right: 0; bottom: 0;
+      width: 0;
+      background: #1e1e2e;
+      border-left: 1px solid #3c3c3c;
+      z-index: 25;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      font-size: 11px;
+      transition: width 0.15s ease;
+    }
+    #right-panel.open { width: 290px; overflow-y: auto; }
+
+    .panel-header {
+      padding: 8px 12px;
+      font-weight: 600;
+      font-size: 11px;
+      color: #9cdcfe;
+      border-bottom: 1px solid #3c3c3c;
+      flex-shrink: 0;
+      background: #252526;
+      position: sticky; top: 0;
+    }
+    .panel-placeholder {
+      padding: 24px 12px;
+      color: #555;
+      font-size: 11px;
+      text-align: center;
+      line-height: 1.6;
+    }
+
+    /* ── Namespace tree ── */
+    .ns-tree { padding: 4px 0; }
+    .ns-group-header {
+      display: flex; align-items: center; gap: 5px;
+      padding: 4px 10px; cursor: pointer;
+      color: #9cdcfe; font-size: 11px; font-weight: 600; user-select: none;
+    }
+    .ns-group-header:hover { background: rgba(255,255,255,0.05); }
+    .ns-toggle { color: #555; width: 10px; flex-shrink: 0; }
+    .ns-badge  { margin-left: auto; color: #555; font-size: 10px; }
+    .ns-classes { padding-left: 14px; display: none; }
+    .ns-class-item {
+      padding: 2px 10px; cursor: pointer;
+      font-size: 11px; color: #d4d4d4;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-radius: 2px;
+    }
+    .ns-class-item:hover  { background: rgba(255,255,255,0.07); color: #4ec9b0; }
+    .ns-class-item.active { background: rgba(0,122,204,0.15); color: #4fc3f7; }
+
+    /* ── Panel search / controls ── */
+    .panel-search {
+      display: flex; gap: 4px; padding: 6px 8px;
+      border-bottom: 1px solid #3c3c3c; flex-shrink: 0;
+    }
+    .panel-search input {
+      flex: 1; background: #3c3c3c; border: 1px solid #555;
+      color: #d4d4d4; padding: 3px 6px; border-radius: 3px; font-size: 11px;
+    }
+    .panel-search input:focus { outline: none; border-color: #007acc; }
+    .panel-search button {
+      background: #0e639c; border: none; color: #fff;
+      padding: 3px 8px; border-radius: 3px; font-size: 12px; cursor: pointer;
+    }
+    .panel-search button:hover { background: #1177bb; }
+
+    /* ── AI Summary panel ── */
+    .summary-intent {
+      padding: 10px 12px; font-size: 12px; color: #4fc3f7;
+      font-style: italic; border-bottom: 1px solid #2a2a2a;
+    }
+    .summary-section { padding: 8px 12px; }
+    .summary-section-title {
+      font-size: 10px; color: #888; text-transform: uppercase;
+      letter-spacing: 0.5px; margin-bottom: 4px;
+    }
+    .summary-item { font-size: 11px; color: #d4d4d4; padding: 2px 0; line-height: 1.4; }
+    .summary-link {
+      color: #9cdcfe; cursor: pointer;
+      border-bottom: 1px dashed rgba(156,220,254,0.3);
+    }
+    .summary-link:hover { color: #4fc3f7; }
+    .summary-spinner { padding: 20px 12px; color: #555; font-size: 11px; text-align: center; }
+
+    /* ── Trace left controls ── */
+    .trace-ctrl { padding: 6px 10px; border-bottom: 1px solid #2a2a2a; }
+    .trace-ctrl label { display: block; font-size: 10px; color: #888; margin-bottom: 3px; }
+    .trace-ctrl input[type="text"],
+    .trace-ctrl select {
+      width: 100%; background: #3c3c3c; border: 1px solid #555;
+      color: #d4d4d4; padding: 4px 6px; border-radius: 3px; font-size: 11px; box-sizing: border-box;
+    }
+    .trace-ctrl input:focus, .trace-ctrl select:focus { outline: none; border-color: #007acc; }
+    .trace-hop-row { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+    .trace-hop-row input[type="range"] { flex: 1; accent-color: #007acc; }
+    .trace-hop-val { color: #4fc3f7; font-size: 11px; min-width: 18px; text-align: right; }
+    .trace-btn {
+      display: block; width: calc(100% - 20px); margin: 6px 10px;
+      background: #0e639c; border: none; color: #fff;
+      padding: 5px 0; border-radius: 3px; font-size: 11px; cursor: pointer;
+    }
+    .trace-btn:hover { background: #1177bb; }
+    .panel-section-title {
+      padding: 6px 10px; font-size: 10px; font-weight: 600; color: #888;
+      text-transform: uppercase; letter-spacing: 0.5px;
+      border-top: 1px solid #2a2a2a; margin-top: 4px;
+    }
+    .error-log-area {
+      width: 100%; min-height: 72px; background: #2a2a2a;
+      border: 1px solid #555; color: #d4d4d4; font-family: monospace;
+      font-size: 10px; padding: 4px 6px; border-radius: 3px;
+      resize: vertical; box-sizing: border-box;
+    }
+    .error-log-area:focus { outline: none; border-color: #007acc; }
+
+    /* ── Call chain in right panel ── */
+    .chain-step {
+      display: flex; align-items: baseline; gap: 6px;
+      padding: 5px 10px; cursor: pointer;
+      border-left: 3px solid transparent; font-size: 11px;
+    }
+    .chain-step:hover { background: rgba(255,255,255,0.04); }
+    .chain-step.step-self { border-left-color: #4ec9b0; }
+    .chain-num {
+      flex-shrink: 0; width: 18px; height: 18px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px; font-weight: bold; color: #1e1e1e; background: #ffd700;
+    }
+    .chain-num.k-call  { background: #4fc3f7; }
+    .chain-num.k-write { background: #ff8c00; color: #fff; }
+    .chain-num.k-read  { background: #6dbf67; }
+    .chain-body { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .chain-cls  { color: #9cdcfe; }
+    .chain-cls.self-cls { color: #4ec9b0; font-style: italic; }
+    .chain-sep  { color: #555; }
+    .chain-mbr  { color: #dcdcaa; }
+    .chain-tag  { font-size: 9px; padding: 0 4px; border-radius: 3px; margin-left: 4px; }
+    .chain-tag.k-call  { background: rgba(79,195,247,0.2);  color: #4fc3f7; }
+    .chain-tag.k-write { background: rgba(255,140,0,0.2);   color: #ff8c00; }
+    .chain-tag.k-read  { background: rgba(109,191,103,0.2); color: #6dbf67; }
+
+    /* ── Impact analysis ── */
+    .impact-group { padding: 6px 10px; }
+    .impact-title { font-size: 10px; color: #888; margin-bottom: 4px; }
+    .impact-class {
+      display: block; font-size: 11px; color: #9cdcfe; padding: 2px 0; cursor: pointer;
+    }
+    .impact-class:hover { color: #4fc3f7; }
+    .impact-class.indirect { color: #888; }
+    .impact-class.indirect:hover { color: #d4d4d4; }
+    /* ── Chat Mode (H1 / H2) ── */
+    .chat-context-list { list-style: none; margin: 0; padding: 4px 0; }
+    .chat-context-item {
+      display: flex; align-items: center; gap: 6px;
+      padding: 4px 10px; font-size: 11px; color: #ccc; cursor: pointer;
+    }
+    .chat-context-item:hover { background: #2a2d2e; }
+    .chat-context-item .ctx-remove {
+      margin-left: auto; color: #666; cursor: pointer; font-size: 12px;
+    }
+    .chat-context-item .ctx-remove:hover { color: #f44; }
+    .chat-add-btn {
+      display: block; width: calc(100% - 20px); margin: 6px 10px;
+      padding: 5px 8px; background: #2d2d2d; border: 1px solid #444;
+      color: #ccc; font-size: 11px; cursor: pointer; border-radius: 3px;
+      text-align: left;
+    }
+    .chat-add-btn:hover { background: #37373d; border-color: #007acc; }
+    #chat-output {
+      flex: 1; overflow-y: auto; padding: 8px 10px;
+      display: flex; flex-direction: column; gap: 8px;
+      min-height: 0;
+    }
+    .chat-msg {
+      padding: 7px 10px; border-radius: 4px;
+      font-size: 11px; line-height: 1.6; white-space: pre-wrap; word-break: break-word;
+    }
+    .chat-msg.user { background: #1c3a5e; color: #9cdcfe; align-self: flex-end; max-width: 85%; }
+    .chat-msg.assistant { background: #252526; color: #d4d4d4; border: 1px solid #3c3c3c; }
+    .chat-empty {
+      color: #555; font-size: 11px; padding: 20px 10px; text-align: center;
+    }
+    .chat-input-row {
+      display: flex; gap: 6px; padding: 8px 10px;
+      border-top: 1px solid #3c3c3c; flex-shrink: 0;
+    }
+    #chat-input {
+      flex: 1; background: #1e1e1e; border: 1px solid #3c3c3c;
+      color: #d4d4d4; font-size: 11px; padding: 5px 8px;
+      border-radius: 3px; resize: none; min-height: 44px; max-height: 120px;
+      font-family: inherit;
+    }
+    #chat-input:focus { outline: none; border-color: #007acc; }
+    #chat-send-btn {
+      background: #007acc; border: none; color: #fff; font-size: 11px;
+      padding: 5px 10px; border-radius: 3px; cursor: pointer; align-self: flex-end;
+    }
+    #chat-send-btn:hover { background: #1a8ad4; }
+    #chat-send-btn:disabled { background: #444; cursor: default; }
+    .chat-spinner { color: #555; font-size: 10px; padding: 4px 10px; }
+    #chat-panel-right {
+      display: flex; flex-direction: column; height: 100%;
+    }
+    /* ── H3: Code Suggestion blocks ── */
+    .chat-code-block {
+      margin: 6px 0; border: 1px solid #3c3c3c; border-radius: 4px;
+      background: #1e1e1e; overflow: hidden;
+    }
+    .chat-code-header {
+      display: flex; align-items: center; gap: 6px;
+      padding: 4px 8px; background: #2d2d2d; border-bottom: 1px solid #3c3c3c;
+      font-size: 10px; color: #888;
+    }
+    .chat-code-lang { color: #9cdcfe; font-weight: bold; flex: 1; }
+    .chat-code-copy, .chat-code-jump {
+      background: none; border: 1px solid #555; color: #ccc;
+      font-size: 10px; padding: 2px 6px; border-radius: 2px; cursor: pointer;
+    }
+    .chat-code-copy:hover { border-color: #007acc; color: #4fc3f7; }
+    .chat-code-jump { border-color: #4a3; color: #6dbf67; }
+    .chat-code-jump:hover { background: #1a2a1a; }
+    .chat-code-pre {
+      margin: 0; padding: 8px 10px; overflow-x: auto;
+      font-size: 11px; line-height: 1.6; color: #d4d4d4;
+      font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace;
+      white-space: pre; tab-size: 2;
+    }
+    .chat-inline-code {
+      background: #2d2d2d; border: 1px solid #3c3c3c;
+      border-radius: 2px; padding: 0 3px; font-family: monospace;
+      font-size: 10px; color: #ce9178;
+    }
+    .chat-classlink {
+      color: #4fc3f7; cursor: pointer; text-decoration: underline;
+      text-decoration-color: #2a5a7a;
+    }
+    .chat-classlink:hover { color: #9cdcfe; }
+    .chat-para { margin: 4px 0; line-height: 1.6; font-size: 11px; }
+
+    /* ── F2: Cluster Node ── */
+    #btn-cluster { border-color: #555; }
+    #btn-cluster.active { border-color: #007acc; color: #4fc3f7; background: rgba(0,122,204,0.15); }
+    .cluster-node {
+      position: absolute; background: #1a2030; border: 2px solid #3c4a6a;
+      border-radius: 8px; cursor: pointer; min-width: 180px;
+      box-shadow: 0 2px 12px rgba(0,122,204,0.18);
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .cluster-node:hover { border-color: #4fc3f7; box-shadow: 0 2px 16px rgba(79,195,247,0.22); }
+    .cluster-node.selected { border-color: #007acc; box-shadow: 0 0 0 2px rgba(0,122,204,0.4); }
+    .cluster-header {
+      padding: 10px 14px 6px; font-size: 13px; font-weight: bold;
+      color: #9cdcfe; border-bottom: 1px solid #2a3550;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .cluster-ns-icon { font-size: 16px; line-height: 1; }
+    .cluster-ns-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cluster-body {
+      padding: 8px 14px; font-size: 11px; color: #888;
+    }
+    .cluster-count { color: #4fc3f7; font-weight: bold; }
+    .cluster-classes { margin-top: 4px; color: #666; font-size: 10px; }
+
+    .explanation-box {
+      margin: 6px 10px; padding: 8px; background: #1a2a1a;
+      border: 1px solid #2a3a2a; border-radius: 3px;
+      font-size: 10px; color: #6dbf67; line-height: 1.5;
+    }
+
     /* ── Empty state ── */
     #empty-state {
       position: absolute;
@@ -592,6 +904,11 @@
 
 <!-- Toolbar -->
 <div id="toolbar">
+  <div id="mode-bar">
+    <button class="mode-btn mode-active" data-mode="explore" title="Explore: understand codebase structure">Explore</button>
+    <button class="mode-btn" data-mode="trace" title="Trace: follow call chains and impact">Trace</button>
+    <button class="mode-btn" data-mode="chat" title="Chat: AI-powered code discussion">Chat</button>
+  </div>
   <button id="btn-fit"   title="Fit all nodes in view">Fit</button>
   <button id="btn-reset" title="Reset zoom to 100%">100%</button>
   <input  id="filter-input" type="text" placeholder="Search classes…" title="Regex filter by class name" />
@@ -602,6 +919,7 @@
   <button id="btn-undo" title="Undo last neighbor expansion (Ctrl+Z)" disabled>↩ Undo</button>
   <button id="btn-select" title="Rubber-band select mode — drag to select, Del to hide (shortcut: S)">⬚ Select</button>
   <button id="btn-show-hidden" title="Restore all hidden nodes" style="display:none;color:#f5a623;border-color:#f5a623;">Show Hidden (0)</button>
+  <button id="btn-cluster" title="Toggle Namespace Cluster View (F2)">⬡ Cluster</button>
   <div class="export-wrap">
     <button id="btn-export" title="Export / Copy diagram">Export ▾</button>
     <div id="export-menu">
@@ -611,6 +929,12 @@
   </div>
   <div id="info-bar">0 classes</div>
 </div>
+
+<!-- Left Panel -->
+<div id="left-panel"><div id="left-panel-content"></div></div>
+
+<!-- Right Panel -->
+<div id="right-panel"><div id="right-panel-content"></div></div>
 
 <!-- Canvas -->
 <div id="canvas-container">
@@ -671,8 +995,24 @@
 </div>
 
 <script>
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  clang-blueprint Webview — Architecture (P17-01)             ║
+// ║                                                              ║
+// ║  Module boundaries (all in this single file):               ║
+// ║                                                              ║
+// ║  AppState   — shared mutable state, VS Code bridge           ║
+// ║  NodeCard   — renders one ClassEntry as a DOM card           ║
+// ║               IN:  entry, NodeCard.DisplayOptions            ║
+// ║               OUT: HTMLElement                               ║
+// ║  Canvas     — pan/zoom canvas, layout, minimap, rubber-band  ║
+// ║               IN:  entries[], options                        ║
+// ║               API: Canvas.render / centerOn / fitView …     ║
+// ║  Panels     — LeftPanel / RightPanel per-mode content        ║
+// ║  AppShell   — coordinates mode switches, message routing     ║
+// ╚══════════════════════════════════════════════════════════════╝
+
 // ============================================================
-//  State
+//  AppState — shared mutable state, VS Code bridge
 // ============================================================
 const vscode = acquireVsCodeApi();
 
@@ -767,6 +1107,560 @@ let selectedClass  = null;
 // P9-03: Method Trace Mode state
 let traceMode = null; // {className, sig, rowEl} or null
 
+// ── E4: App Mode ──────────────────────────────────────────────
+let activeMode = 'explore';
+
+function switchMode(mode) {
+  if (mode === activeMode) return;
+  activeMode = mode;
+
+  document.querySelectorAll('.mode-btn').forEach(btn => {
+    btn.classList.toggle('mode-active', btn.dataset.mode === mode);
+  });
+
+  // Exit canvas trace mode when leaving its parent app mode
+  if (mode !== 'trace') {
+    const tp = document.getElementById('trace-panel');
+    tp.classList.remove('visible');
+    // traceMode cleanup is handled by exitTraceMode() called elsewhere
+  }
+
+  _renderSidePanels(mode);
+  vscode.postMessage({ type: 'modeSwitch', mode });
+}
+
+// ── Mode panel state ──────────────────────────────────────────
+let traceSubgraph    = null;  // Set<string> | null; null = show all
+let _traceFocalClass  = '';
+let _traceFocalMethod = '';
+
+function _esc(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function _renderSidePanels(mode) {
+  const lc = document.getElementById('left-panel-content');
+  const rc = document.getElementById('right-panel-content');
+
+  if (mode === 'explore') {
+    _buildExploreLeft(lc);
+    _buildExploreRight(rc);
+  } else if (mode === 'trace') {
+    _buildTraceLeft(lc);
+    _buildTraceRight(rc);
+  } else {
+    _buildChatLeft(lc);
+    _buildChatRight(rc);
+  }
+
+  if (mode !== 'trace') { traceSubgraph = null; renderAll(); }
+
+  document.getElementById('left-panel').classList.add('open');
+  document.getElementById('right-panel').classList.add('open');
+  _adjustCanvasMargins();
+}
+
+// ── Explore: Left Panel (F1 + F4) ─────────────────────────────
+function _buildExploreLeft(container) {
+  container.innerHTML = `
+    <div class="panel-header">Explore</div>
+    <div class="panel-search">
+      <input id="explore-keyword" type="text" placeholder="Feature keyword…" />
+      <button id="explore-search-btn" title="Find relevant classes">⌕</button>
+    </div>
+    <div id="explore-ns-tree" class="ns-tree"></div>`;
+  document.getElementById('explore-search-btn').addEventListener('click', _doFeatureSearch);
+  document.getElementById('explore-keyword').addEventListener('keydown', e => {
+    if (e.key === 'Enter') _doFeatureSearch();
+  });
+  _refreshNamespaceTree();
+}
+
+function _doFeatureSearch() {
+  const q = (document.getElementById('explore-keyword') || {}).value?.trim();
+  if (!q) return;
+  vscode.postMessage({ type: 'featureQuery', query: q });
+}
+
+function _refreshNamespaceTree() {
+  const tree = document.getElementById('explore-ns-tree');
+  if (!tree) return;
+  if (!allEntries.length) { tree.innerHTML = '<div class="panel-placeholder">No entries loaded</div>'; return; }
+
+  const groups = {};
+  allEntries.forEach(e => {
+    const ns = e.namespace || '(global)';
+    (groups[ns] = groups[ns] || []).push(e);
+  });
+
+  tree.innerHTML = Object.keys(groups).sort().map(ns => {
+    const classes = groups[ns].sort((a,b) => a.className.localeCompare(b.className));
+    const safeId = 'nsg_' + ns.replace(/[^a-z0-9]/gi, '_');
+    return `<div class="ns-group">
+      <div class="ns-group-header" onclick="_toggleNsGroup('${safeId}','${_esc(ns)}')">
+        <span class="ns-toggle" id="tog_${safeId}">▶</span>
+        <span>${_esc(ns)}</span>
+        <span class="ns-badge">${classes.length}</span>
+      </div>
+      <div class="ns-classes" id="${safeId}">
+        ${classes.map(e =>
+          `<div class="ns-class-item" data-cn="${_esc(e.className)}"
+               onclick="_nsClassClick('${_esc(e.className)}')">${_esc(e.className)}</div>`
+        ).join('')}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function _toggleNsGroup(safeId, ns) {
+  const el  = document.getElementById(safeId);
+  const tog = document.getElementById('tog_' + safeId);
+  if (!el) return;
+  const opening = el.style.display === 'none' || el.style.display === '';
+  el.style.display = opening ? 'block' : 'none';
+  if (tog) tog.textContent = opening ? '▼' : '▶';
+  if (opening) applyFilter('ns:' + ns);
+}
+
+function _nsClassClick(className) {
+  document.querySelectorAll('.ns-class-item.active').forEach(el => el.classList.remove('active'));
+  const item = document.querySelector(`.ns-class-item[data-cn="${CSS.escape(className)}"]`);
+  if (item) item.classList.add('active');
+  applyFilter('');
+  setTimeout(() => { centerOn(className); selectNode(className); }, 60);
+  if (activeMode === 'explore') {
+    const summEl = document.getElementById('explore-summary');
+    if (summEl) { summEl.className = 'summary-spinner'; summEl.textContent = 'Loading…'; }
+    vscode.postMessage({ type: 'requestSummary', className });
+  }
+}
+
+// ── Explore: Right Panel (F3) ─────────────────────────────────
+function _buildExploreRight(container) {
+  container.innerHTML = `
+    <div class="panel-header">AI Summary</div>
+    <div id="explore-summary" class="summary-spinner">Select a class to see its AI-generated summary</div>`;
+}
+
+function _showSummary(msg) {
+  if (activeMode !== 'explore') return;
+  const el = document.getElementById('explore-summary');
+  if (!el) return;
+  const intent = _esc(msg.intent || '—');
+  const resps  = (msg.responsibilities || []).map(r => `<div class="summary-item">• ${_esc(r)}</div>`).join('');
+  const mkLinks = arr => (arr || []).map(c =>
+    `<span class="summary-link" onclick="_nsClassClick('${_esc(c)}')">${_esc(c)}</span>`).join(', ');
+  el.className = '';
+  el.innerHTML = `
+    <div class="summary-intent">${intent}</div>
+    ${resps ? `<div class="summary-section"><div class="summary-section-title">Methods</div>${resps}</div>` : ''}
+    ${msg.usedBy?.length  ? `<div class="summary-section"><div class="summary-section-title">Used by</div><div class="summary-item">${mkLinks(msg.usedBy)}</div></div>` : ''}
+    ${msg.dependsOn?.length ? `<div class="summary-section"><div class="summary-section-title">Depends on</div><div class="summary-item">${mkLinks(msg.dependsOn)}</div></div>` : ''}`;
+}
+
+// ── Trace: Left Panel (G1 + G4) ───────────────────────────────
+function _buildTraceLeft(container) {
+  const opts = allEntries.map(e => `<option value="${_esc(e.className)}">`).join('');
+  container.innerHTML = `
+    <div class="panel-header">Trace</div>
+    <div class="trace-ctrl">
+      <label>Focal Class</label>
+      <input id="trace-cls-inp" list="trace-cls-list" type="text" placeholder="Class name…" />
+      <datalist id="trace-cls-list">${opts}</datalist>
+    </div>
+    <div class="trace-ctrl">
+      <label>Method <span style="color:#555">(optional)</span></label>
+      <select id="trace-mth-sel"><option value="">— any —</option></select>
+    </div>
+    <div class="trace-ctrl">
+      <label>N-hop depth</label>
+      <div class="trace-hop-row">
+        <input type="range" id="trace-hop-sl" min="1" max="3" value="1" />
+        <span class="trace-hop-val" id="trace-hop-v">1</span>
+      </div>
+    </div>
+    <button class="trace-btn" id="trace-go-btn">Trace →</button>
+    <div class="panel-section-title">Error Log Anchor</div>
+    <div class="trace-ctrl">
+      <label>Paste error log / stack trace</label>
+      <textarea class="error-log-area" id="trace-err-log" rows="4" placeholder="Paste error output here…"></textarea>
+    </div>
+    <button class="trace-btn" id="trace-loc-btn">Locate →</button>`;
+
+  document.getElementById('trace-cls-inp').addEventListener('input', function() {
+    _populateMethodSelect(this.value);
+  });
+  document.getElementById('trace-hop-sl').addEventListener('input', function() {
+    document.getElementById('trace-hop-v').textContent = this.value;
+  });
+  document.getElementById('trace-go-btn').addEventListener('click', () => {
+    const cn  = document.getElementById('trace-cls-inp').value.trim();
+    if (!cn) return;
+    const sig  = document.getElementById('trace-mth-sel').value || undefined;
+    const hops = parseInt(document.getElementById('trace-hop-sl').value, 10);
+    _traceFocalClass = cn; _traceFocalMethod = sig || '';
+    vscode.postMessage({ type: 'setFocal', className: cn, methodSignature: sig, hops });
+  });
+  document.getElementById('trace-loc-btn').addEventListener('click', () => {
+    const log = document.getElementById('trace-err-log').value.trim();
+    if (log) vscode.postMessage({ type: 'locateAnchor', errorLog: log });
+  });
+}
+
+function _populateMethodSelect(className) {
+  const sel = document.getElementById('trace-mth-sel');
+  if (!sel) return;
+  const entry = allEntries.find(e => e.className === className);
+  if (!entry) { sel.innerHTML = '<option value="">— any —</option>'; return; }
+  const methods = [...(entry.interfaces || []), ...(entry.privateMethods || [])];
+  sel.innerHTML = '<option value="">— any —</option>' +
+    methods.map(m => `<option value="${_esc(m)}">${_esc(m.length > 58 ? m.slice(0,58)+'…' : m)}</option>`).join('');
+}
+
+// ── Trace: Right Panel (G2 + G3) ──────────────────────────────
+function _buildTraceRight(container) {
+  container.innerHTML = `
+    <div class="panel-header">Call Chain</div>
+    <div id="trace-chain-list"><div class="panel-placeholder">Set focal class and click Trace →</div></div>
+    <div id="trace-expl" style="display:none"></div>
+    <div class="panel-header" style="margin-top:4px">Impact Analysis</div>
+    <button class="trace-btn" id="trace-impact-btn" style="margin-bottom:4px">Analyse Impact →</button>
+    <div id="trace-impact-res"></div>`;
+  document.getElementById('trace-impact-btn').addEventListener('click', () => {
+    if (_traceFocalClass) vscode.postMessage({ type: 'requestImpact', className: _traceFocalClass });
+  });
+}
+
+function _showTraceResult(msg) {
+  if (activeMode !== 'trace') return;
+  // Filter canvas to subgraph
+  const sub = new Set((msg.subgraph || []).map(e => e.className));
+  traceSubgraph = sub;
+  renderAll();
+  if (msg.focalClass) setTimeout(() => centerOn(msg.focalClass), 120);
+
+  // Rebuild call chain
+  const chainEl = document.getElementById('trace-chain-list');
+  if (!chainEl) return;
+  const steps = msg.callChain || [];
+  if (!steps.length) {
+    chainEl.innerHTML = '<div class="panel-placeholder">No call chain recorded for this method.</div>';
+  } else {
+    chainEl.innerHTML = steps.map((s, i) => {
+      const isSelf = s.targetClass === '_self_';
+      const klass  = s.isWrite ? 'k-write' : (s.kind === 'call' ? 'k-call' : 'k-read');
+      const tag    = s.kind === 'call' ? 'call' : (s.isWrite ? 'write' : 'read');
+      const clsHtml = isSelf
+        ? `<span class="chain-cls self-cls">this</span>`
+        : `<span class="chain-cls">${_esc(s.targetClass)}</span>`;
+      const onclick = isSelf ? '' : `onclick="_nsClassClick('${_esc(s.targetClass)}')"`;
+      return `<div class="chain-step ${isSelf?'step-self':''}" ${onclick}>
+        <div class="chain-num ${klass}">${i+1}</div>
+        <div class="chain-body">${clsHtml}<span class="chain-sep">::</span><span class="chain-mbr">${_esc(s.member)}</span>
+          <span class="chain-tag ${klass}">${tag}</span></div></div>`;
+    }).join('');
+  }
+
+  const explEl = document.getElementById('trace-expl');
+  if (explEl && msg.explanation) {
+    explEl.innerHTML = `<div class="explanation-box">${_esc(msg.explanation)}</div>`;
+    explEl.style.display = 'block';
+  }
+}
+
+function _showImpact(msg) {
+  const el = document.getElementById('trace-impact-res');
+  if (!el) return;
+  const mkList = (arr, cls) => arr.length
+    ? arr.map(c => `<span class="impact-class ${cls}" onclick="_nsClassClick('${_esc(c)}')">${_esc(c)}</span>`).join('')
+    : `<span class="impact-class indirect">none</span>`;
+  el.innerHTML = `
+    <div class="impact-group">
+      <div class="impact-title">Direct (${(msg.direct||[]).length})</div>
+      ${mkList(msg.direct||[], '')}
+    </div>
+    <div class="impact-group" style="border-top:1px solid #2a2a2a">
+      <div class="impact-title">Indirect (${(msg.indirect||[]).length})</div>
+      ${mkList(msg.indirect||[], 'indirect')}
+    </div>`;
+}
+
+function _showAnchorResult(msg) {
+  const classes = msg.classes || [];
+  if (!classes.length) return;
+  const first = classes[0];
+  // Pre-fill focal class input
+  const inp = document.getElementById('trace-cls-inp');
+  if (inp) { inp.value = first.className; _populateMethodSelect(first.className); }
+  _traceFocalClass = first.className;
+  // Highlight matched classes on canvas
+  classes.forEach((e, i) => {
+    const n = nodes[e.className];
+    if (!n) return;
+    n.el.classList.add(i === 0 ? 'trace-source' : 'trace-target');
+  });
+  centerOn(first.className);
+}
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  Panels module (E1 / P17-01)                                 ║
+// ║                                                              ║
+// ║  Each mode has a left + right panel builder function.        ║
+// ║  Entry point: _renderSidePanels(mode)                        ║
+// ║                                                              ║
+// ║  Explore: _buildExploreLeft / _buildExploreRight             ║
+// ║  Trace:   _buildTraceLeft   / _buildTraceRight               ║
+// ║  Chat:    _buildChatLeft    / _buildChatRight                 ║
+// ║                                                              ║
+// ║  Panel builders must NOT import vscode or call extension     ║
+// ║  Host APIs directly — only via vscode.postMessage()          ║
+// ╚══════════════════════════════════════════════════════════════╝
+
+// ── Chat: Left Panel — Context Builder (H2) ───────────────────
+// State: selected class names for chat context
+let _chatContextClasses = [];
+
+function _buildChatLeft(container) {
+  container.innerHTML = `
+    <div class="panel-header">Context Builder</div>
+    <div class="panel-section-title" style="padding:6px 10px 2px">Classes in context</div>
+    <ul class="chat-context-list" id="chat-ctx-list"></ul>
+    <button class="chat-add-btn" id="chat-add-selected">+ Add selected class</button>
+    <button class="chat-add-btn" id="chat-add-ns">+ Add current namespace</button>
+  `;
+  _refreshChatContextList();
+  document.getElementById('chat-add-selected').onclick = () => {
+    if (selectedClass && !_chatContextClasses.includes(selectedClass)) {
+      _chatContextClasses.push(selectedClass);
+      _refreshChatContextList();
+      vscode.postMessage({ type: 'contextUpdate', selectedClasses: _chatContextClasses });
+    }
+  };
+  document.getElementById('chat-add-ns').onclick = () => {
+    const active = filterRegex && filterRegex.source ? filterRegex.source.replace(/^ns:/, '') : '';
+    if (!active) return;
+    const nsClasses = allEntries
+      .filter(e => (e.namespace || '') === active)
+      .map(e => e.className);
+    nsClasses.forEach(cn => { if (!_chatContextClasses.includes(cn)) _chatContextClasses.push(cn); });
+    _refreshChatContextList();
+    vscode.postMessage({ type: 'contextUpdate', selectedClasses: _chatContextClasses });
+  };
+}
+
+function _refreshChatContextList() {
+  const list = document.getElementById('chat-ctx-list');
+  if (!list) return;
+  if (_chatContextClasses.length === 0) {
+    list.innerHTML = `<li style="padding:6px 10px;color:#555;font-size:11px;">No classes selected</li>`;
+    return;
+  }
+  list.innerHTML = _chatContextClasses.map(cn => `
+    <li class="chat-context-item" data-cn="${_esc(cn)}">
+      <span>${_esc(cn)}</span>
+      <span class="ctx-remove" title="Remove">✕</span>
+    </li>
+  `).join('');
+  list.querySelectorAll('.ctx-remove').forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      const cn = btn.closest('.chat-context-item').dataset.cn;
+      _chatContextClasses = _chatContextClasses.filter(c => c !== cn);
+      _refreshChatContextList();
+      vscode.postMessage({ type: 'contextUpdate', selectedClasses: _chatContextClasses });
+    };
+  });
+  list.querySelectorAll('.chat-context-item').forEach(item => {
+    item.onclick = () => {
+      const cn = item.dataset.cn;
+      if (nodes[cn]) centerOn(cn);
+    };
+  });
+}
+
+// ── Chat: Right Panel — Chat UI (H1) ──────────────────────────
+function _buildChatRight(container) {
+  container.innerHTML = `
+    <div id="chat-panel-right">
+      <div class="panel-header">Chat</div>
+      <div id="chat-output">
+        <div class="chat-empty">Ask a question about your codebase…</div>
+      </div>
+      <div id="chat-spinner" class="chat-spinner" style="display:none">Thinking…</div>
+      <div class="chat-input-row">
+        <textarea id="chat-input" placeholder="Ask about selected classes…" rows="2"></textarea>
+        <button id="chat-send-btn">Send</button>
+      </div>
+    </div>
+  `;
+  document.getElementById('chat-send-btn').onclick = _sendChatMessage;
+  document.getElementById('chat-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); _sendChatMessage(); }
+  });
+}
+
+function _sendChatMessage() {
+  const inp = document.getElementById('chat-input');
+  const sendBtn = document.getElementById('chat-send-btn');
+  const out = document.getElementById('chat-output');
+  if (!inp || !out) return;
+  const text = inp.value.trim();
+  if (!text) return;
+
+  // Clear the empty placeholder
+  const empty = out.querySelector('.chat-empty');
+  if (empty) empty.remove();
+
+  // Append user bubble
+  const userDiv = document.createElement('div');
+  userDiv.className = 'chat-msg user';
+  userDiv.textContent = text;
+  out.appendChild(userDiv);
+  out.scrollTop = out.scrollHeight;
+
+  inp.value = '';
+  inp.disabled = true;
+  sendBtn.disabled = true;
+  const spinner = document.getElementById('chat-spinner');
+  if (spinner) spinner.style.display = 'block';
+
+  vscode.postMessage({ type: 'chatMessage', text, selectedClasses: _chatContextClasses });
+}
+
+// ── H3: Markdown-like renderer for chat responses ─────────────
+/**
+ * Convert raw AI response text to rich HTML.
+ * Handles: fenced code blocks (``` ... ```), inline `code`, class name links,
+ * and plain paragraphs. Returns an HTML string.
+ */
+function _renderChatMarkdown(text) {
+  // Build a set of known class names for auto-linking
+  const classNames = new Set(allEntries.map(e => e.className));
+
+  const parts = [];
+  // Split on fenced code blocks
+  const FENCE_RE = /```([\w+-]*)\n?([\s\S]*?)```/g;
+  let lastIdx = 0;
+  let m;
+  while ((m = FENCE_RE.exec(text)) !== null) {
+    // Prose before this code block
+    if (m.index > lastIdx) {
+      parts.push({ type: 'prose', text: text.slice(lastIdx, m.index) });
+    }
+    parts.push({ type: 'code', lang: m[1] || 'text', code: m[2] });
+    lastIdx = m.index + m[0].length;
+  }
+  if (lastIdx < text.length) {
+    parts.push({ type: 'prose', text: text.slice(lastIdx) });
+  }
+
+  const html = parts.map(part => {
+    if (part.type === 'code') {
+      return _renderCodeBlock(part.lang, part.code);
+    }
+    return _renderProse(part.text, classNames);
+  }).join('');
+  return html;
+}
+
+function _renderCodeBlock(lang, code) {
+  // Look for file location hint inside code: e.g. "// file: src/foo.cpp:42"
+  const fileLine = code.match(/\/\/\s*file:\s*([^\s:]+\.(?:cpp|h|hpp|c|cc|cxx)):?(\d+)?/i);
+  const jumpBtn = fileLine
+    ? `<button class="chat-code-jump"
+         data-file="${_esc(fileLine[1])}" data-line="${fileLine[2] || 1}"
+         title="Jump to ${_esc(fileLine[1])}:${fileLine[2] || 1}">⤢ Jump</button>`
+    : '';
+
+  return `<div class="chat-code-block">
+    <div class="chat-code-header">
+      <span class="chat-code-lang">${_esc(lang || 'text')}</span>
+      ${jumpBtn}
+      <button class="chat-code-copy" data-code="${_esc(code)}">Copy</button>
+    </div>
+    <pre class="chat-code-pre">${_esc(code.replace(/\n$/, ''))}</pre>
+  </div>`;
+}
+
+function _renderProse(text, classNames) {
+  if (!text.trim()) return '';
+  // Inline code
+  let html = text.replace(/`([^`]+)`/g, (_, c) =>
+    `<code class="chat-inline-code">${_esc(c)}</code>`);
+  // Linkify known class names (word boundary match, not inside code tags)
+  html = html.replace(/\b([A-Z][A-Za-z0-9_]+)\b/g, (match) => {
+    if (classNames.has(match)) {
+      return `<span class="chat-classlink" data-cn="${match}">${match}</span>`;
+    }
+    return match;
+  });
+  // Wrap each non-empty line as a paragraph
+  return html.split('\n').map(line => {
+    const t = line.trim();
+    return t ? `<p class="chat-para">${t}</p>` : '';
+  }).join('');
+}
+
+/** Wire interactive elements inside a rendered chat message div */
+function _wireRenderedChatMsg(div) {
+  // Copy buttons
+  div.querySelectorAll('.chat-code-copy').forEach(btn => {
+    btn.onclick = () => {
+      const code = btn.dataset.code;
+      navigator.clipboard?.writeText(code).then(() => {
+        vscode.postMessage({ type: 'copyText', text: code });
+        const orig = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(() => btn.textContent = orig, 1500);
+      });
+    };
+  });
+  // Jump to Source buttons
+  div.querySelectorAll('.chat-code-jump').forEach(btn => {
+    btn.onclick = () => {
+      vscode.postMessage({
+        type: 'methodClick',
+        fileLocation: btn.dataset.file,
+        lineNumber: parseInt(btn.dataset.line, 10) || 1,
+      });
+    };
+  });
+  // Class name links → center on canvas
+  div.querySelectorAll('.chat-classlink').forEach(span => {
+    span.onclick = () => {
+      const cn = span.dataset.cn;
+      if (nodes[cn]) { centerOn(cn); selectNode(cn); }
+    };
+  });
+}
+
+function _adjustCanvasMargins() {
+  const cc = document.getElementById('canvas-container');
+  const lOpen = document.getElementById('left-panel').classList.contains('open');
+  const rOpen = document.getElementById('right-panel').classList.contains('open');
+  cc.style.left  = lOpen ? '240px' : '0';
+  cc.style.right = rOpen ? '290px' : '0';
+}
+
+document.querySelectorAll('.mode-btn').forEach(btn => {
+  btn.addEventListener('click', () => switchMode(btn.dataset.mode));
+});
+
+// F2: Cluster View toggle
+document.getElementById('btn-cluster').addEventListener('click', () => {
+  clusterViewActive = !clusterViewActive;
+  document.getElementById('btn-cluster').classList.toggle('active', clusterViewActive);
+  if (clusterViewActive) {
+    _renderClusterView(allEntries);
+  } else {
+    renderAll();
+  }
+});
+
+// Open panels for default mode on load
+_renderSidePanels(activeMode);
+
 // P5-10: Exploration history stack — each entry: {addedClasses: Set, triggerClass}
 const exploreHistory = [];
 
@@ -776,11 +1670,15 @@ const exploreHistory = [];
 window.addEventListener('message', ev => {
   const msg = ev.data;
   switch (msg.type) {
-    case 'loadEntries':
+    case 'indexLoaded':   // new protocol (AppShell)
+    case 'loadEntries':   // legacy compatibility
       allEntries = msg.entries || [];
       totalCount = msg.totalCount || allEntries.length;
-      // Clear saved positions when a new search result arrives (different class set)
       renderAll();
+      if (activeMode === 'explore') _refreshNamespaceTree();
+      break;
+    case 'modeChanged':
+      if (msg.mode && msg.mode !== activeMode) switchMode(msg.mode);
       break;
     case 'filter':
       document.getElementById('filter-input').value = msg.pattern;
@@ -798,6 +1696,68 @@ window.addEventListener('message', ev => {
     case 'layoutDirection':
       layoutDir = msg.direction || 'TB';
       renderAll();
+      break;
+    case 'summaryResult':
+      _showSummary(msg);
+      break;
+    case 'queryResult':
+      if (msg.matches && msg.matches.length) {
+        const names = msg.matches.map(m => m.className || m.entry?.className).filter(Boolean);
+        const matchSet = new Set(names);
+        const matched = allEntries.filter(e => matchSet.has(e.className));
+        allEntries.filter(e => !matchSet.has(e.className)).forEach(e =>
+          nodes[e.className]?.el.classList.add('dimmed'));
+        matched.forEach(e => nodes[e.className]?.el.classList.remove('dimmed'));
+      }
+      break;
+    case 'traceResult':
+      _showTraceResult(msg);
+      break;
+    case 'impactResult':
+      _showImpact(msg);
+      break;
+    case 'anchorResult':
+      _showAnchorResult(msg);
+      break;
+    case 'chatChunk': {
+      const out = document.getElementById('chat-output');
+      if (out) {
+        const last = out.lastElementChild;
+        if (last && last.dataset.role === 'assistant') {
+          last.textContent += msg.chunk;
+        } else {
+          const div = document.createElement('div');
+          div.className = 'chat-msg assistant';
+          div.dataset.role = 'assistant';
+          div.textContent = msg.chunk;
+          out.appendChild(div);
+          out.scrollTop = out.scrollHeight;
+        }
+      }
+      break;
+    }
+    case 'chatDone': {
+      const spinner = document.getElementById('chat-spinner');
+      if (spinner) spinner.style.display = 'none';
+      const inp = document.getElementById('chat-input');
+      if (inp) inp.disabled = false;
+      const sendBtn = document.getElementById('chat-send-btn');
+      if (sendBtn) sendBtn.disabled = false;
+      const out = document.getElementById('chat-output');
+      if (out) {
+        // H3: post-process the last assistant message with rich rendering
+        const last = out.lastElementChild;
+        if (last && last.dataset.role === 'assistant') {
+          const raw = last.textContent;
+          last.innerHTML = _renderChatMarkdown(raw);
+          _wireRenderedChatMsg(last);
+        }
+        out.scrollTop = out.scrollHeight;
+      }
+      break;
+    }
+    case 'extensionError':
+      console.error('Blueprint extension error:', msg.message);
       break;
   }
 });
@@ -906,9 +1866,154 @@ function computeLayout(entries, direction) {
 }
 
 // ============================================================
+//  F2: Namespace Cluster View
+// ============================================================
+let clusterViewActive = false;
+
+function _buildClusterEntries(entries) {
+  // Group entries by namespace (use '(global)' for unnamed)
+  const groups = {};
+  entries.forEach(e => {
+    const ns = e.namespace || '(global)';
+    (groups[ns] = groups[ns] || []).push(e);
+  });
+
+  // Compute inter-namespace dependencies
+  const classToNs = {};
+  entries.forEach(e => { classToNs[e.className] = e.namespace || '(global)'; });
+
+  return Object.entries(groups).map(([ns, members]) => {
+    // Collect inter-namespace deps (deduplicated)
+    const depTargets = new Set();
+    members.forEach(e => {
+      (e.dependencies || []).forEach(d => {
+        const targetNs = classToNs[d.target];
+        if (targetNs && targetNs !== ns) depTargets.add(targetNs);
+      });
+    });
+
+    return {
+      className: ns,
+      namespace: '',
+      responsibility: `${members.length} class${members.length === 1 ? '' : 'es'}`,
+      dependencies: [...depTargets].map(t => ({ target: t, type: 'association' })),
+      interfaces: members.map(e => e.className),   // reuse as member list
+      baseClasses: [],
+      templateParams: [],
+      attributes: [],
+      _isCluster: true,
+      _members: members,
+    };
+  });
+}
+
+function _renderClusterView(entries) {
+  const canvas  = document.getElementById('canvas');
+  const svgEl   = document.getElementById('edges-svg');
+  const emptyEl = document.getElementById('empty-state');
+
+  Array.from(canvas.children).forEach(c => { if (c.id !== 'edges-svg') canvas.removeChild(c); });
+  while (svgEl.firstChild) svgEl.removeChild(svgEl.firstChild);
+  nodes = {};
+
+  const clusters = _buildClusterEntries(entries);
+  emptyEl.style.display = clusters.length === 0 ? 'block' : 'none';
+  if (clusters.length === 0) { updateInfoBar(0, 0, 0); return; }
+
+  // Layout: use existing topo layout with cluster entries
+  const positions = computeLayout(clusters, layoutDir);
+  const CLUSTER_W = 220, CLUSTER_H = 90;
+
+  clusters.forEach(cl => {
+    const pos = positions[cl.className] || { x: 0, y: 0, w: CLUSTER_W, h: CLUSTER_H };
+    const el = document.createElement('div');
+    el.className = 'cluster-node';
+    el.dataset.class = cl.className;
+    el.style.left  = pos.x + 'px';
+    el.style.top   = pos.y + 'px';
+    el.style.width = Math.max(CLUSTER_W, pos.w) + 'px';
+
+    const nsColor = namespaceColor(cl.className);
+    if (nsColor) el.style.borderColor = nsColor;
+
+    const sampleNames = cl._members.slice(0, 3).map(e => e.className).join(', ');
+    const more = cl._members.length > 3 ? ` +${cl._members.length - 3} more` : '';
+
+    el.innerHTML = `
+      <div class="cluster-header" ${nsColor ? `style="color:${nsColor}"` : ''}>
+        <span class="cluster-ns-icon">⬡</span>
+        <span class="cluster-ns-name" title="${_esc(cl.className)}">${_esc(cl.className)}</span>
+      </div>
+      <div class="cluster-body">
+        <span class="cluster-count">${cl._members.length}</span> classes
+        <div class="cluster-classes">${_esc(sampleNames)}${more}</div>
+      </div>
+    `;
+
+    el.addEventListener('click', () => {
+      // Zoom into this namespace: turn off cluster view, filter to namespace
+      document.querySelectorAll('.cluster-node').forEach(n => n.classList.remove('selected'));
+      el.classList.add('selected');
+      _exitClusterView();
+      // Show only that namespace's classes
+      applyFilter(`ns:${cl.className === '(global)' ? '' : cl.className}`);
+    });
+
+    canvas.appendChild(el);
+    nodes[cl.className] = {
+      el, entry: cl,
+      x: pos.x, y: pos.y,
+      w: Math.max(CLUSTER_W, pos.w), h: CLUSTER_H,
+    };
+  });
+
+  // Draw inter-cluster edges using existing edge renderer
+  requestAnimationFrame(() => {
+    Object.values(nodes).forEach(n => { n.h = n.el.offsetHeight; });
+    const classSet = new Set(clusters.map(c => c.className));
+    drawEdges(clusters, classSet);
+    updateInfoBar(clusters.length, clusters.length, allEntries.length);
+    fitView();
+    renderMinimap();
+  });
+}
+
+function _exitClusterView() {
+  clusterViewActive = false;
+  document.getElementById('btn-cluster').classList.remove('active');
+  renderAll();
+}
+
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  Canvas module (E2 / P17-02)                                 ║
+// ║                                                              ║
+// ║  Responsibilities:                                           ║
+// ║    • Layout (computeLayout)                                  ║
+// ║    • Rendering (renderAll, drawEdges, redrawEdges)           ║
+// ║    • Pan / zoom (applyTransform, fitView)                    ║
+// ║    • Minimap (renderMinimap)                                 ║
+// ║    • Rubber-band select + hide (isSelectMode, hiddenNodes)   ║
+// ║    • Node drag / resize                                      ║
+// ║                                                              ║
+// ║  Public API (exposed via Canvas object below):              ║
+// ║    Canvas.render()          — full redraw                    ║
+// ║    Canvas.centerOn(name)    — pan to named node              ║
+// ║    Canvas.fitView()         — fit all nodes                  ║
+// ║    Canvas.selectNode(name)  — select + highlight adjacency   ║
+// ║    Canvas.highlightOnly(name, dir) — upstream/downstream     ║
+// ║    Canvas.applyFilter(pat)  — regex filter                   ║
+// ║    Canvas.exportMermaid()   — Mermaid syntax string          ║
+// ║    Canvas.exportSVG()       — download SVG                   ║
+// ╚══════════════════════════════════════════════════════════════╝
+
+// ============================================================
 //  Render
 // ============================================================
 function renderAll() {
+  // F2: delegate to cluster renderer when active
+  if (clusterViewActive) { _renderClusterView(allEntries); return; }
+
   const canvas  = document.getElementById('canvas');
   const svgEl   = document.getElementById('edges-svg');
   const emptyEl = document.getElementById('empty-state');
@@ -948,10 +2053,67 @@ function renderAll() {
   });
 }
 
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  NodeCard module (E3 / P17-03)                               ║
+// ║                                                              ║
+// ║  Responsibilities:                                           ║
+// ║    • Render a ClassEntry as an interactive DOM card          ║
+// ║    • Display is controlled by NodeCard.DisplayOptions        ║
+// ║    • Does NOT contain mode-specific logic                    ║
+// ║                                                              ║
+// ║  Public API:                                                 ║
+// ║    NodeCard.create(entry, displayOptions) → HTMLElement      ║
+// ║    NodeCard.update(entry, displayOptions) → void             ║
+// ║                                                              ║
+// ║  DisplayOptions shape:                                       ║
+// ║    { showMethods: bool,     — render public interface rows   ║
+// ║      showAttributes: bool,  — render field rows             ║
+// ║      showPrivate: bool,     — render private method rows     ║
+// ║      compact: bool }        — header-only, no body           ║
+// ╚══════════════════════════════════════════════════════════════╝
+
+/** Default NodeCard display options — full view, all sections shown */
+const NodeCard = (() => {
+  const DEFAULT_OPTS = {
+    showMethods:    true,
+    showAttributes: true,
+    showPrivate:    true,
+    compact:        false,
+  };
+
+  function create(entry, displayOptions) {
+    const opts = Object.assign({}, DEFAULT_OPTS, displayOptions);
+    return _createNodeElWithOpts(entry, opts);
+  }
+
+  function update(entry, displayOptions) {
+    const el = document.querySelector(`.class-node[data-class="${CSS.escape(entry.className)}"]`);
+    if (!el) return;
+    const opts = Object.assign({}, DEFAULT_OPTS, displayOptions);
+    const fresh = _createNodeElWithOpts(entry, opts);
+    // Preserve position
+    fresh.style.left  = el.style.left;
+    fresh.style.top   = el.style.top;
+    fresh.style.width = el.style.width;
+    el.replaceWith(fresh);
+  }
+
+  return { create, update, DEFAULT_OPTS };
+})();
+
 // ============================================================
-//  Create node element
+//  Create node element (internal — called by NodeCard.create)
 // ============================================================
+/** @param {object} displayOptions */
+function _createNodeElWithOpts(entry, displayOptions) {
+  return _legacyCreateNodeEl(entry, displayOptions);
+}
+
 function createNodeEl(entry) {
+  return NodeCard.create(entry, {});
+}
+
+function _legacyCreateNodeEl(entry, opts = {}) {
   const el = document.createElement('div');
   el.className = 'class-node';
   el.dataset.class = entry.className;
@@ -1027,6 +2189,8 @@ function createNodeEl(entry) {
 
   // ── Collapsible body ──
   const body = document.createElement('div');
+  // compact mode: no body at all
+  if (opts.compact) { el.appendChild(header); return el; }
   body.className = 'node-body' + (isCollapsed ? '' : ' expanded');
 
   // P10-02: helper — build a collapsible section
@@ -1124,38 +2288,38 @@ function createNodeEl(entry) {
     return row;
   }
 
-  // --- Section 1: Public Fields ---
+  // --- Section 1: Public Fields (gated by opts.showAttributes) ---
   const allAttrs = entry.attributes || [];
   const pubAttrs  = allAttrs.filter(a => a.startsWith('+'));
   const privAttrs = allAttrs.filter(a => !a.startsWith('+'));
-  if (pubAttrs.length > 0) {
+  if (opts.showAttributes && pubAttrs.length > 0) {
     const {wrapper, secBody} = makeSection('Public Fields', pubAttrs.length, false);
     const aDiv = document.createElement('div'); aDiv.className = 'node-attributes';
     pubAttrs.forEach(l => aDiv.appendChild(buildAttrRow(l)));
     secBody.appendChild(aDiv); body.appendChild(wrapper);
   }
 
-  // --- Section 2: Public Methods ---
+  // --- Section 2: Public Methods (gated by opts.showMethods) ---
   const methods = entry.interfaces || [];
   const methodMeta = entry.interfaceMeta || [];
-  if (methods.length > 0) {
+  if (opts.showMethods && methods.length > 0) {
     const {wrapper, secBody} = makeSection('Public Methods', methods.length, false);
     const mDiv = document.createElement('div'); mDiv.className = 'node-methods';
     methods.forEach((sig, idx) => mDiv.appendChild(buildMethodRow(sig, methodMeta[idx], false)));
     secBody.appendChild(mDiv); body.appendChild(wrapper);
   }
 
-  // --- Section 3: Protected / Private Fields ---
-  if (privAttrs.length > 0) {
+  // --- Section 3: Protected / Private Fields (gated by opts.showAttributes) ---
+  if (opts.showAttributes && privAttrs.length > 0) {
     const {wrapper, secBody} = makeSection('Private Fields', privAttrs.length, false);
     const aDiv = document.createElement('div'); aDiv.className = 'node-attributes';
     privAttrs.forEach(l => aDiv.appendChild(buildAttrRow(l)));
     secBody.appendChild(aDiv); body.appendChild(wrapper);
   }
 
-  // --- Section 4: Private Methods (P10-01) ---
+  // --- Section 4: Private Methods (gated by opts.showPrivate) ---
   const privateMethods = entry.privateMethods || [];
-  if (privateMethods.length > 0) {
+  if (opts.showPrivate && privateMethods.length > 0) {
     const {wrapper, secBody} = makeSection('Private Methods', privateMethods.length, false);
     const mDiv = document.createElement('div'); mDiv.className = 'node-methods';
     privateMethods.forEach(pm => mDiv.appendChild(buildMethodRow(pm.signature, pm, true)));
@@ -1720,6 +2884,9 @@ function _filterEntries(pattern) {
 
 function getVisibleEntries() {
   if (!allEntries.length) return [];
+  if (traceSubgraph !== null) {
+    return allEntries.filter(e => traceSubgraph.has(e.className));
+  }
   const { matched, neighbors } = _filterEntries(filterRegex);
   if (filterRegex) return [...matched, ...neighbors];
   return matched; // already sliced in _filterEntries
@@ -1927,6 +3094,10 @@ function selectNode(className) {
   // P8-01: auto-expand hidden neighbors so all related classes appear on canvas
   if (countHiddenNeighbors(node.entry) > 0) {
     expandNeighbors(className);
+  }
+  // Trigger AI summary when node selected in explore mode
+  if (activeMode === 'explore') {
+    vscode.postMessage({ type: 'requestSummary', className });
   }
 }
 
@@ -2437,6 +3608,51 @@ document.getElementById('ctx-explore-here').addEventListener('click', () => {
     centerOn(entry.className);
   });
 });
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  Canvas — public API object (E2 / P17-02)                    ║
+// ║  External code should call Canvas.xxx instead of bare fns.   ║
+// ╚══════════════════════════════════════════════════════════════╝
+const Canvas = Object.freeze({
+  /** Full redraw from current allEntries + filters */
+  render:        ()             => renderAll(),
+  /** Pan canvas to center on named class node */
+  centerOn:      (name)         => centerOn(name),
+  /** Fit all visible nodes into the viewport */
+  fitView:       ()             => fitView(),
+  /** Select a node and highlight its adjacency */
+  selectNode:    (name)         => selectNode(name),
+  /** Highlight only upstream or downstream neighbors */
+  highlightOnly: (name, dir)    => highlightOnly(name, dir),
+  /** Apply regex/ns: filter string */
+  applyFilter:   (pat)          => applyFilter(pat),
+  /** Return Mermaid classDiagram syntax for current view */
+  exportMermaid: ()             => buildMermaid(),
+  /** Download current view as SVG */
+  exportSVG:     ()             => exportSVG(),
+  /** Toggle cluster view on/off */
+  toggleCluster: ()             => document.getElementById('btn-cluster').click(),
+});
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  Panels — mode-specific left/right panel coordinators (E1)   ║
+// ║  Each mode's panels are built by _buildXxxLeft/Right().      ║
+// ║  _renderSidePanels(mode) is the single entry point.          ║
+// ╚══════════════════════════════════════════════════════════════╝
+// (All panel builder functions are defined above in the Panels section.)
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  AppShell — coordinates mode switches + message routing (E1) ║
+// ║  Entry points from VS Code Extension Host:                   ║
+// ║    window message 'indexLoaded'  → Canvas.render()           ║
+// ║    window message 'modeChanged'  → switchMode()              ║
+// ║    window message 'summaryResult'→ _showSummary()            ║
+// ║    window message 'traceResult'  → _showTraceResult()        ║
+// ║    window message 'chatChunk'    → stream to chat UI         ║
+// ║  Entry points from UI events:                                ║
+// ║    mode-btn click → switchMode()                             ║
+// ║    node click     → selectNode(), postMessage nodeClick      ║
+// ╚══════════════════════════════════════════════════════════════╝
 
 // Keyboard shortcuts
 window.addEventListener('keydown', e => {

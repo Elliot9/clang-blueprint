@@ -97,6 +97,13 @@ def cmd_scan(args: argparse.Namespace) -> int:
         )
 
     _save_json(output_path, entries)
+
+    # B2: also output blueprint_graph.json (reverseDeps for O(1) impact lookups)
+    from scanner.graph_builder import build_graph, write_graph, graph_path_for
+    graph = build_graph(entries)
+    graph_output = args.graph_output or graph_path_for(output_path)
+    write_graph(graph, graph_output)
+
     return 0
 
 
@@ -230,6 +237,10 @@ def build_parser() -> argparse.ArgumentParser:
             "(may be repeated, e.g. --exclude 'third_party/**' --exclude 'build/**'). "
             "Patterns in .blueprintignore are always merged in automatically."
         ),
+    )
+    scan_parser.add_argument(
+        "--graph-output",
+        help="Output path for blueprint_graph.json (default: same directory as --output)",
     )
 
     # --- diagram ---

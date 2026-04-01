@@ -129,6 +129,17 @@
           "items": { "type": "string" },
           "default": [],
           "description": "Glob patterns of directories/files to exclude from scanning (e.g. [\"third_party/**\", \"build/**\"]). Merged with .blueprintignore if present."
+        },
+        "clangBlueprint.analysisProvider": {
+          "type": "string",
+          "enum": ["local", "claude"],
+          "default": "local",
+          "description": "Analysis provider: 'local' uses heuristics (no API key needed); 'claude' uses the Claude API for richer AI summaries and chat."
+        },
+        "clangBlueprint.claudeApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Claude API key for AI-powered analysis. Required when analysisProvider is 'claude'. Get your key at console.anthropic.com."
         }
       }
     },

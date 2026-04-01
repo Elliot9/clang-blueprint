@@ -1,5 +1,7 @@
 # task.md — Blueprint-to-Code Framework 開發任務追蹤
 
+---
+
 ## Phase 1：解析核心 The Brain（第 1–4 週）
 
 ### Sprint 1.1 — 環境與骨架（Week 1）
@@ -38,217 +40,297 @@
 ## Phase 2：VS Code 插件 The Body（第 5–8 週）
 
 ### Sprint 2.1 — 插件骨架（Week 5）
-- [x] **T-24** 初始化 `vscode-extension/`：`yo code` 或手動建立 TypeScript 插件專案
+- [x] **T-24** 初始化 `vscode-extension/`：TypeScript 插件專案
 - [x] **T-25** 設定 `package.json`：commands, activationEvents (`onLanguage:cpp`)
 - [x] **T-26** 實作 `extension.ts`：註冊 `showDiagram` 指令，開啟空白 `WebviewPanel`
-- [x] **T-27** 建立 `webview/index.html`：引入 React Flow CDN，顯示 Hello World 節點
+- [x] **T-27** 建立 `webview/index.html`：顯示 Hello World 節點
 
 ### Sprint 2.2 — 圖表渲染（Week 6）
 - [x] **T-28** 實作 extension → WebView `postMessage`：傳入 `blueprint_index.json` 資料
-- [x] **T-29** 實作 React Flow 節點生成：每個 `ClassEntry` → 一個節點
-- [x] **T-30** 實作 dagre 自動佈局（引入 `dagre` CDN）
+- [x] **T-29** 實作節點生成：每個 `ClassEntry` → 一個節點
+- [x] **T-30** 實作自動佈局
 - [x] **T-31** 實作邊 (edge) 依 dependency type 區分顏色與線型
-- [x] **T-32** 實作小地圖 (`<MiniMap>`) 與無限畫布縮放
+- [x] **T-32** 實作小地圖與無限畫布縮放
 
 ### Sprint 2.3 — 互動聯動（Week 7）
-- [x] **T-33** 實作節點雙擊 → `postMessage({type: 'jumpTo', file, line})` → `vscode.window.showTextDocument`
-- [x] **T-34** 實作 `onDidChangeTextEditorSelection`：游標所在類別 → WebView 高亮對應節點
-- [x] **T-35** 實作右鍵選單：`highlightUpstream` / `highlightDownstream`（BFS 遍歷 dependency graph）
-- [x] **T-36** 實作 `togglePrivate` 開關：過濾 private 成員後重新渲染
-- [x] **T-37** 實作 `vscode.workspace.createFileSystemWatcher` 監聽 `blueprint_index.json` → 自動重繪
+- [x] **T-33** 節點雙擊 → `vscode.window.showTextDocument`
+- [x] **T-34** 游標所在類別 → WebView 高亮對應節點
+- [x] **T-35** 右鍵選單：`highlightUpstream` / `highlightDownstream`
+- [x] **T-36** `togglePrivate` 開關
+- [x] **T-37** `vscode.workspace.createFileSystemWatcher` 監聽 `blueprint_index.json` → 自動重繪
 
 ### Sprint 2.4 — 插件整合測試（Week 8）
-- [x] **T-38** 撰寫 VS Code Extension Test（`@vscode/test-electron`）
+- [x] **T-38** 撰寫 VS Code Extension Test
 - [x] **T-39** 效能驗收：插件啟動時間 ≤ 2 秒
-- [x] **T-40** 可用性驗收：使用者無需查閱手冊即可找到特定邏輯的實作檔案
+- [x] **T-40** 可用性驗收
 
 ---
 
 ## Phase 3：AI 與動態整合 The Soul（第 9–12 週）
 
 ### Sprint 3.1 — AI 索引（Week 9）
-- [x] **T-41** 實作 `ai_api/indexer.py`：TF-IDF 向量化 (`sklearn.TfidfVectorizer`)
+- [x] **T-41** 實作 `ai_api/indexer.py`：TF-IDF 向量化
 - [x] **T-42** 實作 `query(text, top_k)` → cosine similarity 排序
-- [x] **T-43** 實作索引 pickle 序列化 / 反序列化（`.blueprint_tfidf.pkl`）
-- [x] **T-44** 撰寫 `tests/test_indexer.py`：驗證 top-1 回傳符合預期
+- [x] **T-43** 實作索引 pickle 序列化 / 反序列化
+- [x] **T-44** 撰寫 `tests/test_indexer.py`
 
 ### Sprint 3.2 — FastAPI 查詢服務（Week 10）
 - [x] **T-45** 實作 `ai_api/server.py`：`POST /query`, `POST /rebuild-index`, `GET /health`
-- [x] **T-46** 加入請求驗證（`pydantic` model）與錯誤處理（404 when index missing）
-- [x] **T-47** 撰寫 `tests/test_server.py`（`httpx` + `pytest-asyncio`）
+- [x] **T-46** 加入請求驗證與錯誤處理
+- [x] **T-47** 撰寫 `tests/test_server.py`
 
 ### Sprint 3.3 — Call Stack 轉換（Week 11）
-- [x] **T-48** 實作 GDB Backtrace 文字解析器 → 標準化 JSON Lines trace 格式
-- [x] **T-49** 實作 trace → Mermaid `sequenceDiagram` 轉換（過濾 std:: 呼叫）
-- [x] **T-50** 實作 FSM 掃描器：`switch(enum_state)` pattern → `stateDiagram-v2`
+- [x] **T-48** 實作 GDB Backtrace 文字解析器
+- [x] **T-49** 實作 trace → Mermaid `sequenceDiagram` 轉換
+- [x] **T-50** 實作 FSM 掃描器
 
 ### Sprint 3.4 — RAG 驗證與收尾（Week 12）
-- [x] **T-51** 建立 20 組人工標註 query-groundtruth 對，量測 top-1 hit rate
-- [x] **T-52** 時序圖準確度驗收：對比 GDB Backtrace frame，確認 ≥ 95% 一致性
-- [x] **T-53** 撰寫 `CLAUDE.md`（開發環境設定、常用指令、架構說明）
-- [x] **T-54** 整合測試：從 C++ 原始碼 → blueprint_index.json → `/query` API 端到端驗證
+- [x] **T-51** 建立 20 組人工標註 query-groundtruth 對
+- [x] **T-52** 時序圖準確度驗收
+- [x] **T-53** 撰寫 `CLAUDE.md`
+- [x] **T-54** 整合測試
 
 ---
 
 ## 跨 Phase 任務
 
 - [x] **T-X1** 建立 `requirements.txt` 並鎖定版本
-- [x] **T-X2** 設定 `pyproject.toml` 或 `setup.cfg`（`python -m scanner.main` 入口點）
-- [x] **T-X3** 撰寫範例 C++ 專案（`examples/storage_engine/`）供示範與測試用
-- [x] **T-X4** 建立 GitHub Actions CI：`pytest` + `eslint` on push
+- [x] **T-X2** 設定 `pyproject.toml`
+- [x] **T-X3** 撰寫範例 C++ 專案（`examples/storage_engine/`）
+- [x] **T-X4** 建立 GitHub Actions CI
 
 ---
 
-## Phase 4：WebView UI 互動升級（Post-MVP）
+## Phase 4：WebView UI 互動升級
 
-### Sprint 4.1 — 節點可拖拉
-- [x] **UI-01** 每個 class 節點可以用滑鼠拖拉到任意位置（目前只有整體畫布 pan）
-- [x] **UI-02** 拖拉後記住位置，filter 清空時不重置
-
-### Sprint 4.2 — 節點內容折疊/展開
-- [x] **UI-03** 節點預設折疊（只顯示 className + responsibility）
-- [x] **UI-04** 點擊節點標題列展開：顯示 attributes（成員變數）
-- [x] **UI-05** 點擊展開：顯示 interfaces（方法），每個方法顯示完整 return type + 參數型別
-- [x] **UI-06** 折疊/展開按鈕（▶/▼），展開狀態自動調整節點高度並重繪 edges
-
-### Sprint 4.3 — 方法詳細資訊
-- [x] **UI-07** hover 方法名稱顯示 tooltip：完整 signature（含 template params、const/virtual）
-- [x] **UI-08** 點擊方法名稱 → 跳轉到該方法的原始碼行號
-
-### Sprint 4.4 — Edge 互動
-- [x] **UI-09** hover edge 顯示 tooltip：dependency 類型 + cardinality
+- [x] **UI-01** 節點可拖拉
+- [x] **UI-02** 拖拉後記住位置
+- [x] **UI-03** 節點預設折疊
+- [x] **UI-04** 點擊展開顯示 attributes
+- [x] **UI-05** 點擊展開顯示 interfaces
+- [x] **UI-06** 折疊/展開按鈕，展開狀態自動調整節點高度
+- [x] **UI-07** hover 方法名稱顯示 tooltip
+- [x] **UI-08** 點擊方法名稱 → 跳轉原始碼行號
+- [x] **UI-09** hover edge 顯示 tooltip
 - [x] **UI-10** 點擊 edge 高亮兩端節點
-
-### Sprint 4.5 — 搜尋與 UX 強化
-- [x] **UI-11** 搜尋結果顯示 match count（例如「找到 3 個類別 + 12 個鄰居」）
-- [x] **UI-12** 支援 namespace 過濾（例如 `ns:storage`）
-- [x] **UI-13** 右鍵選單加入「只顯示此類別的 neighborhood」選項
+- [x] **UI-11** 搜尋結果顯示 match count
+- [x] **UI-12** 支援 namespace 過濾
+- [x] **UI-13** 右鍵選單「只顯示此類別的 neighborhood」
 - [x] **UI-14** 節點顏色依 namespace 區分
-- [x] **UI-15** 匯出目前可見圖表為 SVG 或複製 Mermaid 語法
+- [x] **UI-15** 匯出圖表為 SVG 或複製 Mermaid 語法
 
 ---
 
-## Phase 5：深度探索 Deep Dive（圖形化互動升級）
+## Phase 5：深度探索 Deep Dive
 
-> 核心目標：讓用戶從任意一個類別出發，像爬樹一樣理解整個 codebase 的互動關係；方法層面能直白看到「誰呼叫誰、誰依賴誰」。
-
-### Sprint 5.1 — 方法級互動視覺化
-
-**問題**：目前展開節點只能看到方法 signature，無法直觀得知這個方法與哪些其他類別產生互動。
-
-- [x] **P5-01** `ast_parser.py` 在 `interfaceMeta` 中新增 `usedTypes[]`：記錄每個 public method 的參數型別 + 返回型別中涉及的非 trivial 類別名稱
-- [x] **P5-02** 展開節點後，每個方法行右側顯示涉及的類別名稱（小 badge，例如 `[NVMeDriver]`）；badge 顏色對應 dependency type
-- [x] **P5-03** 點擊方法的 class badge → 畫布自動展開並 focus 到對應節點（若不在畫布則從 cachedEntries 載入）
-- [x] **P5-04** hover badge 顯示 tooltip：`NVMeDriver — composition dependency`
-
-### Sprint 5.2 — 節點點擊展開鄰居（Graph Exploration）
-
-**問題**：搜尋結果只顯示符合關鍵字的類別 + 靜態 1-hop 鄰居；點擊一個節點後畫布不會繼續擴展，無法「由一個點擴展開來」探索。
-
-- [x] **P5-05** 節點 header 顯示「+N」badge：N = 該節點有幾個相依類別尚未出現在畫布中
-- [x] **P5-06** 點擊「+N」badge → 將該節點所有未顯示的 1-hop 鄰居（deps + baseClasses）從 cachedEntries 載入，加入畫布
-- [x] **P5-07** 新載入的節點以 fade-in 動畫出現，排列在被展開節點右側 / 下方，不覆蓋既有節點
-- [x] **P5-08** 支援連續多次展開：每個新載入的節點也帶有自己的「+N」badge，可繼續向外探索
-- [x] **P5-09** 「收合最後一次展開」按鈕（toolbar 或 Undo）：移除最近一批加入的鄰居節點
-
-### Sprint 5.3 — 探索歷史與起點重置
-
-- [x] **P5-10** 實作探索歷史棧（exploration stack）：每次展開操作記錄 `{addedClasses[], triggerClass}`
-- [x] **P5-11** `Ctrl+Z` / toolbar Undo 按鈕：彈出最後一次展開，還原畫布狀態
-- [x] **P5-12** 右鍵選單新增「從這裡開始探索」：清空畫布，只保留該節點，用戶可從零重新向外展開
-
-### Sprint 5.4 — RAG 增強 AI Indexing
-
-> 目標：讓 `interfaceMeta.usedTypes` 與方法簽名參與 AI 索引，讓 `/query` 更精準回傳涉及特定類別互動的相關類別。
-
-- [x] **P5-13** 更新 `ai_api/indexer.py`：將 `interfaceMeta[].signature` 與 `interfaceMeta[].usedTypes` 納入 TF-IDF 文字欄位（目前只有 className + responsibility + interfaces[]）
-- [x] **P5-14** 在文字向量化時對 `usedTypes` 中的類別名做 CamelCase 展開（與現有 className 展開一致），提升 token 覆蓋率
-- [x] **P5-15** 更新 `POST /query` 回傳結構：在每個結果項目加入 `matchedMethods[]`，標示哪些方法的 signature 與 usedTypes 貢獻了這次命中
-- [x] **P5-16** 撰寫 `tests/test_indexer_v2.py`：驗證包含 usedTypes 的查詢（例如 "NVMeDriver interaction"）top-1 命中率 ≥ 原版
+- [x] **P5-01** `interfaceMeta` 新增 `usedTypes[]`
+- [x] **P5-02** 方法行右側顯示 class badge
+- [x] **P5-03** 點擊 badge → 展開對應節點
+- [x] **P5-04** hover badge 顯示 tooltip
+- [x] **P5-05** 節點 header 顯示「+N」badge
+- [x] **P5-06** 點擊「+N」→ 載入 1-hop 鄰居
+- [x] **P5-07** 新節點 fade-in 動畫
+- [x] **P5-08** 支援連續多次展開
+- [x] **P5-09** 「收合最後一次展開」按鈕
+- [x] **P5-10** 探索歷史棧
+- [x] **P5-11** `Ctrl+Z` Undo
+- [x] **P5-12** 右鍵「從這裡開始探索」
+- [x] **P5-13** 更新 `ai_api/indexer.py` 納入 interfaceMeta
+- [x] **P5-14** CamelCase 展開
+- [x] **P5-15** 更新 `POST /query` 加入 `matchedMethods[]`
+- [x] **P5-16** 撰寫 `tests/test_indexer_v2.py`
 
 ---
 
 ## Phase 6：掃描控制 — Exclude Paths
 
-> 目標：讓用戶可以指定不要解析的目錄或檔案 pattern，方便排除 third-party、generated code、test fixtures 等雜訊。
-
-- [x] **P6-01** `scanner/main.py`：`scan` 子命令新增 `--exclude` 選項（可重複使用，支援 glob pattern，例如 `--exclude "third_party/**" --exclude "build/**"`）
-- [x] **P6-02** `scanner/ast_parser.py`：`scan_directory()` 與 `parse_files()` 接受 `exclude_patterns: list[str]` 參數，在收集檔案清單時過濾掉符合 pattern 的路徑
-- [x] **P6-03** `scanner/incremental.py`：`incremental_scan()` 同樣支援 `exclude_patterns`，傳遞給底層 `parse_files()`，並在快取失效時正確清除被排除的 entry
-- [x] **P6-04** 支援 `.blueprintignore` 設定檔（放在 project root，格式同 `.gitignore`）：若存在則自動讀取，與 `--exclude` 合併使用
-- [x] **P6-05** VS Code 插件 `package.json` 新增設定 `clangBlueprint.excludePaths`（字串陣列），`rebuildIndex` 指令執行 scan 時自動帶入 `--exclude` 參數
-- [x] **P6-06** 撰寫 `tests/test_exclude.py`：驗證被排除目錄內的類別不出現在 `blueprint_index.json`
+- [x] **P6-01** `scanner/main.py`：`--exclude` 選項
+- [x] **P6-02** `scan_directory()` 支援 `exclude_patterns`
+- [x] **P6-03** `incremental_scan()` 支援 `exclude_patterns`
+- [x] **P6-04** 支援 `.blueprintignore` 設定檔
+- [x] **P6-05** VS Code 插件 `clangBlueprint.excludePaths` 設定
+- [x] **P6-06** 撰寫 `tests/test_exclude.py`
 
 ---
 
-## Phase 7：節點可調整大小 Node Resize
+## Phase 7：節點可調整大小
 
-> 目標：讓用戶可以拖拉節點右下角來自由放大縮小節點寬度，解決長方法名被截斷的問題。
-
-- [x] **P7-01** 節點右下角加入 resize handle（小三角形），鼠標靠近時顯示 `se-resize` cursor
-- [x] **P7-02** 拖拉 resize handle → 動態更新節點寬度（最小 180px，無上限），文字自動換行顯示完整內容
-- [x] **P7-03** 調整大小後記住寬度（`nodeWidths` Map），filter / re-render 後不重置
-- [x] **P7-04** 調整大小後即時重繪 edges（連線跟著節點邊界移動）
+- [x] **P7-01** 節點右下角 resize handle
+- [x] **P7-02** 拖拉動態更新節點寬度
+- [x] **P7-03** 調整大小後記住寬度
+- [x] **P7-04** 調整大小後即時重繪 edges
 
 ---
 
 ## Phase 8：解析精準度與互動修正
 
-### Sprint 8.1 — 點擊節點自動展開鄰居
-- [x] **P8-01** 點擊節點時若有隱藏的相依類別（不在畫布上），自動呼叫 `expandNeighbors()` 載入它們，無需再手動點 +N badge
-
-### Sprint 8.2 — typedef / using 型別別名解析
-- [x] **P8-02** `ast_parser.py`：掃描每個 TU 的 `TYPEDEF_DECL` 與 `TYPE_ALIAS_DECL`，建立 alias → canonical type 映射表
-- [x] **P8-03** 在解析 field 型別時，若型別名稱是已知 alias，展開成原始型別（`shared_ptr<T>` → aggregation / `unique_ptr<T>` → composition）
-- [x] **P8-04** `BlueprintEntry` 新增 `typeAliases[]` 欄位（`[{alias, canonical}]`），webview 節點展開時顯示 Aliases 區段
-
-### Sprint 8.3 — 全域 / namespace 自由函數索引
-- [x] **P8-05** `ast_parser.py`：在 `visit()` 中額外處理 `FUNCTION_DECL`（project root 內、非 class member），依 namespace 分組
-- [x] **P8-06** 每個有自由函數的 namespace（無 namespace 則以檔名命名）建立一個合成 `BlueprintEntry`：`className = <namespace>` / `responsibility = "Free Functions"` / `interfaces = [函數簽名]`
-- [x] **P8-07** 自由函數的參數型別同樣產生 dependency，讓 AI 索引與圖表能呈現它與其他類別的關係
+- [x] **P8-01** 點擊節點自動展開鄰居
+- [x] **P8-02** `ast_parser.py` 掃描 `TYPEDEF_DECL` / `TYPE_ALIAS_DECL`
+- [x] **P8-03** field 型別展開 alias
+- [x] **P8-04** `BlueprintEntry` 新增 `typeAliases[]`
+- [x] **P8-05** 處理 `FUNCTION_DECL`（自由函數）
+- [x] **P8-06** 自由函數合成 `BlueprintEntry`
+- [x] **P8-07** 自由函數 dependency 產生
 
 ---
 
-## Phase 9：Method Trace Mode — 方法影響鏈視覺化
+## Phase 9：Method Trace Mode
 
-> 目標：點擊 method 名稱，畫布自動標記該方法影響的所有 class/attribute，並以 1,2,3... 標示存取順序。
-
-- [x] **P9-01** Webview：每個 method 行末加入 `↗` icon（點擊跳原始碼），method 名稱本身改為觸發 Trace Mode
-- [x] **P9-02** `ast_parser.py`：新增 `_scan_method_accesses()`，掃描方法體 `MEMBER_REF_EXPR` / `CALL_EXPR`，依 source order 記錄 `[{order, targetClass, member, kind}]`，存入 `interfaceMeta[].callSequence[]`
-- [x] **P9-03** Webview：實作 Trace Mode — 點擊 method 名稱後，dim 無關節點、目標 class 節點顯示數字 badge（①②③...）、目標 attribute/method 行高亮；Escape 或點空白處退出
+- [x] **P9-01** Webview：method 行末加入 `↗` icon
+- [x] **P9-02** `ast_parser.py`：`_scan_method_accesses()` 記錄 `callSequence[]`
+- [x] **P9-03** Webview：Trace Mode — dim 無關節點、數字 badge、Escape 退出
 
 ---
 
 ## Phase 10：節點四區塊分層顯示
 
-- [x] **P10-01** `ast_parser.py`：`BlueprintEntry` 新增 `privateMethods[]`，抓取 protected/private 方法（含 signature、lineNumber、access、usedTypes、callSequence）
-- [x] **P10-02** Webview：節點改為 4 個各自可獨立折疊的區塊（① Public Fields ② Public Methods ③ Protected/Private Fields ④ Private Methods）；public 區塊預設展開，private/protected 區塊預設摺疊
+- [x] **P10-01** `BlueprintEntry` 新增 `privateMethods[]`
+- [x] **P10-02** Webview：4 個可獨立折疊的區塊
 
 ---
 
 ## Phase 11：Trace Mode 完整 Call Stack 面板
 
-- [x] **P11-01** `ast_parser.py`：`_scan_method_accesses()` 偵測 field 存取是 read 還是 write（檢查 `MEMBER_REF_EXPR` 的 parent 是否為 `BINARY_OPERATOR` / `COMPOUND_ASSIGNMENT_OPERATOR` / `UNARY_OPERATOR` 的 LHS），在 `callSequence` 每個 entry 加入 `isWrite: bool`
-- [x] **P11-02** Webview：Trace Mode 啟動時，在畫布右側顯示 **Trace Panel**，以有序清單呈現完整 call sequence（step 編號、targetClass、member、kind、read/write 標記）；點擊 step 可 focus 到對應節點
-- [x] **P11-03** Webview：numbered badge 依存取類型上色（call = 藍、read = 綠、write = 橘）；Trace Panel 同色標示
+- [x] **P11-01** `_scan_method_accesses()` 偵測 read / write（`isWrite: bool`）
+- [x] **P11-02** Webview：右側 Trace Panel，完整 call sequence 清單
+- [x] **P11-03** numbered badge 依存取類型上色（call=藍、read=綠、write=橘）
 
 ---
 
 ## Phase 12：Layout、Edge 方向與折疊修正
 
-- [x] **P12-01** `ast_parser.py`：移除 `PARSE_SKIP_FUNCTION_BODIES` flag，讓方法體完整解析（啟用真實 `MEMBER_REF_EXPR` 追蹤）
-- [x] **P12-02** Webview：所有節點 section（Public Fields / Public Methods / Private Fields / Private Methods / Aliases）預設全部折疊
-- [x] **P12-03** Webview：`computeLayout()` 改為拓撲排序樹狀佈局（Kahn's BFS rank assignment），同 rank 節點並排、跨 rank 依賴方向延伸，大幅增加 GAP 防重疊
-- [x] **P12-04** Webview：Edge 改用帶箭頭的曲線 path，依類型套用顏色標注 + 明顯方向箭頭（inheritance = 空心三角、composition = 實心菱形、aggregation = 空心菱形、association = 普通箭頭）
+- [x] **P12-01** `ast_parser.py`：移除 `PARSE_SKIP_FUNCTION_BODIES`
+- [x] **P12-02** Webview：所有 section 預設折疊
+- [x] **P12-03** Webview：Kahn's BFS 拓撲排序樹狀佈局
+- [x] **P12-04** Webview：Edge 改用曲線 path + 明確方向箭頭（explicit polygon arrowheads）
 
 ---
 
-## 優先順序（MVP 最小可行產品）
+## Phase 13：產品架構重設計 — Foundation Layer
 
-> 完成以下項目即可示範核心價值：
+> 目標：建立清晰的分層架構，讓三個 Mode（Explore / Trace / Chat）可以在同一個 shell 下獨立運作，互不干擾，變動可預測。
+>
+> 架構分層：Data → Analysis → AI → View → Mode Controllers → Shell
 
-1. **T-06 ~ T-12**：AST 解析出 `blueprint_index.json`
-2. **T-19**：Mermaid Class Diagram 輸出
-3. **T-26 ~ T-31**：VS Code 插件顯示圖表
-4. **T-33**：節點雙擊跳轉原始碼
-5. **T-41 ~ T-45**：`/query` API 回傳相關類別
+- [x] **P13-01** 建立 `shared/types.ts`，定義所有跨層資料契約（`ClassEntry`、`Dependency`、`CallStep`、`MethodMeta`、`ImpactResult`、`AnalysisSummary`）
+- [x] **P13-02** 定義 `IAnalysisProvider` interface（`summarize` / `findRelevant` / `explainChain` / `locateAnchor` / `chat`），支援 `local` 與 `claude` 兩種實作插拔
+- [x] **P13-03** 重新規劃 extension 目錄結構：`src/shell/`、`src/modes/`、`src/ai/`、`src/view/components/`
+- [x] **P13-04** 定義 Extension Host ↔ Webview 雙向訊息協議（`ModeChanged`、`IndexLoaded`、`QueryResult`、`TraceResult`、`ChatResponse`），全部有 TypeScript 型別，不用 `any`
+
+---
+
+## Phase 14：Data Layer 精煉
+
+> 目標：Scanner 只管 AST → 結構化資料，修正依賴過度引入問題，輸出語義分析結果供上層使用。
+
+- [x] **P14-01** 修正依賴過度引入 bug：dependency 只記錄「在 method body / field declaration 中實際出現的 MEMBER_REF_EXPR / CALL_EXPR target」，不記錄 `#include` 傳遞進來的所有符號
+- [x] **P14-02** Scanner 輸出 `blueprint_graph.json`：`reverseDeps` map（誰依賴誰的反向索引），自動在 scan 後產生；`impact_set` 在 TraceController 用 BFS on-demand 計算
+- [x] **P14-03** Local intent heuristic 實作於 `LocalAnalysisProvider.summarize()`：method 名稱前綴 → role pattern；context 中的反向依賴 → usedBy；heuristic 是 ClassEntry → AnalysisSummary 純函數，scanner 不動
+
+---
+
+## Phase 15：AI Layer
+
+> 目標：實作可插拔的 `IAnalysisProvider`，讓 Local 和 Claude 實作都符合同一個 interface。未設定 API key 時自動 fallback 到 local。
+
+- [x] **P15-01** 實作 `LocalAnalysisProvider`（stub，heuristic 基礎版）
+- [x] **P15-02** 實作 `ClaudeAnalysisProvider`（stub，P15-02 完整版待補）
+- [x] **P15-03** 實作 `ContextBuilder`：`src/analysis/context.ts` 純函數模組（`buildExploreContext` / `buildTraceContext` / `buildChatContext` / `computeImpact`）；TraceController 改用 `buildTraceContext` + `computeImpact`
+- [x] **P15-04** Provider 工廠 + VS Code 設定：`clang-blueprint.analysisProvider`（`"local"` | `"claude"`）、`clang-blueprint.claudeApiKey`，未設定 API key 自動 fallback
+
+---
+
+## Phase 16：Shell Layer 重構
+
+> 目標：Extension Host 只負責命令註冊、WebviewPanel lifecycle、訊息路由。每個 Mode 有自己的 Controller，互不知道。
+
+- [x] **P16-01** 重構 `extension.ts` → `AppShell`：只管命令、lifecycle、路由訊息到 active ModeController；ModeController 介面定義（`activate` / `deactivate` / `handleMessage`）
+- [x] **P16-02** 實作 `ExploreController`（stub + requestSummary / featureQuery routing）
+- [x] **P16-03** 實作 `TraceController`（setFocal / requestImpact / locateAnchor + BFS n-hop + reverse dep）
+- [x] **P16-04** 實作 `ChatController`（streaming chat + context update）
+
+---
+
+## Phase 17：View Layer 重構
+
+> 目標：Webview 拆成明確的元件邊界。Canvas / NodeCard / EdgeRenderer 是純 UI 元件，只接收資料，不含業務邏輯。Mode 層傳不同資料給同一個元件。
+
+- [x] **P17-01** 重構 `index.html`：用 JS module pattern 建立清楚的 section 邊界（`AppShell`、`Canvas`、`LeftPanel`、`RightPanel`），每個 section 有明確的 input/output interface，維持 single file 但有架構
+- [x] **P17-02** 抽出 `Canvas` 元件：接收 `{nodes[], edges[], options}`，負責 pan/zoom、minimap、rubber-band select、節點拖拉；不知道自己在哪個 mode
+- [x] **P17-03** 抽出 `NodeCard` 元件：接收 `{entry, displayOptions}`，`displayOptions` 控制顯示哪些區塊、badge 類型等；三個 mode 傳不同的 displayOptions
+- [x] **P17-04** 實作 Mode Bar UI + AppShell layout：Explore / Trace / Chat 切換按鈕在 toolbar 左側；左 Panel（240px）+ 右 Panel（290px）固定 sidebar；canvas 自動調整左右 margin；切換 mode 通知 Extension Host via `modeSwitch`；處理 `modeChanged` 和 `indexLoaded` 訊息
+
+---
+
+## Phase 18：Explore Mode
+
+> 目標：讓用戶從不熟悉的 codebase 出發，透過 namespace 層次樹和 AI summary，10 分鐘內理解系統架構。
+
+- [x] **P18-01** 左 Panel：Namespace 樹，可展開到 class 層；點擊 namespace → canvas 顯示該 namespace cluster；點擊 class → canvas 聚焦 + 觸發 AI summary
+- [x] **P18-02** Canvas：Module Cluster View，預設每個 namespace 是一個大方塊（含 class 數量 badge），點擊展開顯示內部 class nodes；解決「一次看到 200 個 node」的認知負擔
+- [x] **P18-03** 右 Panel：AI Summary，顯示當前選中 namespace/class 的 intent、key responsibilities、主要被哪些 class 使用、主要依賴哪些 class；lazy load（點選時才觸發）
+- [x] **P18-04** Feature Keyword 入口：頂部搜尋框輸入 feature 描述 → `findRelevant()` 找出相關 class 子集 → Canvas 只顯示這些 class + 它們的關係；解決「不知道從哪裡定位 feature」
+
+---
+
+## Phase 19：Trace Mode
+
+> 目標：讓老手從已知的 anchor point（class / method / error log）出發，快速定位 bug 影響範圍或理解執行路徑。
+
+- [x] **P19-01** 左 Panel：Focal Point 搜尋 + N-hop 深度 slider（1/2/3 hop）；Canvas 只顯示 focal node + 相關節點，不相關的 class 完全不出現
+- [x] **P19-02** 右 Panel：Call Chain 清單，從 focal method 出發的完整 call chain（用 `blueprint_graph.json` 資料）；步驟可點擊 → canvas 聚焦；顯示每一步的 read/write field 存取
+- [x] **P19-03** 右 Panel：Impact Analysis，選定 class/method → 顯示「改這裡會影響哪些 class」；分級：直接影響 / 間接影響；可點擊跳到受影響的 class
+- [x] **P19-04** 左 Panel：Error Log 貼上輸入框 → `locateAnchor()` 解析找出相關 class/method → 自動設為 focal point；解決「有 bug report 但不知從哪開始」
+
+---
+
+## Phase 20：Chat Mode
+
+> 目標：讓用戶把 codebase 上下文注入給 AI，進行任務導向的對話（debug / 加新功能 / code review），AI 回應可直接跳到原始碼。
+
+- [x] **P20-01** 右 Panel：Chat UI，訊息列表 + 輸入框 + 串流回應顯示；AI 回應中的 class name / method name 自動變成可點擊連結（→ canvas 聚焦）；支援 Markdown 渲染
+- [x] **P20-02** 左 Panel：Context Builder，顯示目前 chat context 裡的 class 清單（checkbox 可移除）；canvas 上的 class 可點擊加入 context；AI 回應時 auto-suggest 應加入哪些 class（canvas 高亮，用戶確認）
+- [x] **P20-03** Code Suggestion 顯示 + Jump to Source：AI 回應包含 code suggestion 時以 diff 格式顯示（file path + line + before/after）；「Jump to Source」按鈕直接跳到 VS Code editor 對應行
+
+---
+
+## 架構總覽
+
+```
+Shell Layer      (VS Code Extension)   命令、lifecycle、訊息路由
+Mode Controllers                       Explore / Trace / Chat 各自邏輯，互不知道
+View Layer       (Webview)             Canvas + Panels，純 UI，不含業務邏輯
+Analysis Layer                         call graph、impact、dependency 精煉
+AI Layer                               IAnalysisProvider（local / claude 插拔）
+Data Layer       (Scanner)             AST → 結構化資料，不知道 UI 存在
+```
+
+## IAnalysisProvider Interface
+
+```typescript
+interface IAnalysisProvider {
+  readonly providerId: 'local' | 'claude';
+  isAvailable(): Promise<boolean>;
+  summarize(entry: ClassEntry): Promise<string>;
+  findRelevant(query: string, all: ClassEntry[]): Promise<ClassEntry[]>;
+  explainChain(steps: CallStep[], context: ClassEntry[]): Promise<string>;
+  locateAnchor(errorLog: string, all: ClassEntry[]): Promise<ClassEntry[]>;
+  chat(messages: ChatMessage[], context: ClassEntry[], onChunk: (chunk: string) => void): Promise<void>;
+}
+```
+
+---
+
+## 優先順序
+
+> Phase 1–12 全部完成。
+
+**進行中 / 待開始（Phase 13–20）建議執行順序：**
+
+1. **P13**（Foundation）→ 先建立 interface 契約，後續所有層都依賴它
+2. **P14**（Data Layer）→ 修正 scanner 的根本問題，後續 analysis 需要乾淨的資料
+3. **P15**（AI Layer）→ 建立可插拔 provider，Chat Mode 需要它
+4. **P16 + P17**（Shell + View，可並行）→ 重構架構骨架
+5. **P18**（Explore Mode）→ 第一個完整 mode，新人入口
+6. **P19**（Trace Mode）→ 承接現有 trace 功能，老手入口
+7. **P20**（Chat Mode）→ 需要 AI Layer + Context Builder 就緒後才開始

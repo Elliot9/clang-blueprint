@@ -1172,6 +1172,20 @@ def parse_files(
         visitor.visit(tu.cursor)
         all_entries.update(visitor.entries)
 
+    # P14-01: Filter over-included dependencies.
+    # `association` (method param/return) and `dependency` (local var) types can
+    # include any symbol transitively pulled in via #include — not just project
+    # classes.  Only keep those whose target actually exists as a scanned class.
+    # `composition`, `aggregation`, and `inheritance` deps come from field
+    # declarations / base specifiers and are already reliable.
+    known_classes: frozenset[str] = frozenset(all_entries.keys())
+    _TRUSTWORTHY = {"composition", "aggregation", "inheritance"}
+    for entry in all_entries.values():
+        entry.dependencies = [
+            d for d in entry.dependencies
+            if d.type in _TRUSTWORTHY or d.target in known_classes
+        ]
+
     return [entry.to_dict() for entry in all_entries.values()]
 
 
