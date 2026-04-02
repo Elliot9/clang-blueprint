@@ -21,7 +21,6 @@ export class ExploreController implements ModeController {
 
   activate(panel: vscode.WebviewPanel): void {
     this.panel = panel;
-    // TODO P18-01: send namespace tree data to webview
   }
 
   deactivate(): void {

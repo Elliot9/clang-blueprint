@@ -40,6 +40,18 @@ export interface MsgHighlight {
   className: string;
 }
 
+/** Highlight all upstream (dependency) ancestors of a class */
+export interface MsgHighlightUpstream {
+  type: 'highlightUpstream';
+  className: string;
+}
+
+/** Highlight all downstream (dependent) descendants of a class */
+export interface MsgHighlightDownstream {
+  type: 'highlightDownstream';
+  className: string;
+}
+
 /** Filter the canvas to a subset of class names */
 export interface MsgFilter {
   type: 'filter';
@@ -115,6 +127,8 @@ export type ExtensionToWebview =
   | MsgIndexLoaded
   | MsgModeChanged
   | MsgHighlight
+  | MsgHighlightUpstream
+  | MsgHighlightDownstream
   | MsgFilter
   | MsgTraceResult
   | MsgSummaryResult

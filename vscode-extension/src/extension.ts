@@ -92,10 +92,10 @@ export function activate(context: vscode.ExtensionContext): void {
   // ---- highlightUpstream / highlightDownstream ----
   context.subscriptions.push(
     vscode.commands.registerCommand('clangBlueprint.highlightUpstream', () => {
-      // TODO P16-03: delegate to TraceController
+      shell?.highlightUpstream();
     }),
     vscode.commands.registerCommand('clangBlueprint.highlightDownstream', () => {
-      // TODO P16-03: delegate to TraceController
+      shell?.highlightDownstream();
     }),
   );
 
