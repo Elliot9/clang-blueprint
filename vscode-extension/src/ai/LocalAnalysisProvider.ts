@@ -220,8 +220,8 @@ export class LocalAnalysisProvider implements IAnalysisProvider {
   ): Promise<void> {
     onChunk(
       'Local analysis mode is active. To enable AI-powered chat, ' +
-      'set `clangBlueprint.analysisProvider` to `"claude"` and add your ' +
-      'Claude API key in `clangBlueprint.claudeApiKey`.',
+      'set `clangBlueprint.analysisProvider` to `"claude"` or `"gemini"` ' +
+      'and add the corresponding API key in settings.',
     );
   }
 }

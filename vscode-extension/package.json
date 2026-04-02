@@ -126,20 +126,36 @@
         },
         "clangBlueprint.excludePaths": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
           "description": "Glob patterns of directories/files to exclude from scanning (e.g. [\"third_party/**\", \"build/**\"]). Merged with .blueprintignore if present."
         },
         "clangBlueprint.analysisProvider": {
           "type": "string",
-          "enum": ["local", "claude"],
+          "enum": [
+            "local",
+            "claude",
+            "gemini"
+          ],
+          "enumDescriptions": [
+            "Heuristics + TF-IDF — no API key needed",
+            "Claude API — set clangBlueprint.claudeApiKey",
+            "Google Gemini API — set clangBlueprint.geminiApiKey"
+          ],
           "default": "local",
-          "description": "Analysis provider: 'local' uses heuristics (no API key needed); 'claude' uses the Claude API for richer AI summaries and chat."
+          "description": "Analysis provider: 'local' uses heuristics (no API key needed); 'claude' uses the Claude API; 'gemini' uses the Google Gemini API."
         },
         "clangBlueprint.claudeApiKey": {
           "type": "string",
           "default": "",
           "description": "Claude API key for AI-powered analysis. Required when analysisProvider is 'claude'. Get your key at console.anthropic.com."
+        },
+        "clangBlueprint.geminiApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Google Gemini API key for AI-powered analysis. Required when analysisProvider is 'gemini'. Get your key at aistudio.google.com."
         }
       }
     },
@@ -182,5 +198,9 @@
     "eslint": "^8.0.0",
     "typescript": "^5.3.0",
     "vsce": "^2.15.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.82.0",
+    "@google/generative-ai": "^0.24.1"
   }
 }

@@ -66,7 +66,7 @@ export interface ClassEntry {
   privateMethods?: PrivateMethodMeta[]; // protected/private method metadata
 
   // Type aliases discovered in this class (P8-04)
-  typeAliases?: Array<{ alias: string; underlying: string }>;
+  typeAliases?: Array<{ alias: string; canonical: string; depType?: string }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -131,7 +131,7 @@ export interface ChatMessage {
  * concrete provider — they only depend on this interface.
  */
 export interface IAnalysisProvider {
-  readonly providerId: 'local' | 'claude';
+  readonly providerId: 'local' | 'claude' | 'gemini';
 
   /** Returns false if this provider cannot be used (e.g. missing API key). */
   isAvailable(): Promise<boolean>;
