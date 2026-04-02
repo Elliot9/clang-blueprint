@@ -3177,6 +3177,37 @@ function enterTraceMode(entry, meta, rowEl) {
 
 function selectNode(className) {
   exitTraceMode();
+
+  // Toggle: second click on already-selected node collapses its expanded neighbors
+  if (className === selectedClass) {
+    const triggered = exploreHistory.filter(h => h.triggerClass === className);
+    if (triggered.length > 0) {
+      const toRemove = new Set();
+      triggered.forEach(h => h.addedClasses.forEach(cn => toRemove.add(cn)));
+      // Splice those entries out of history
+      for (let i = exploreHistory.length - 1; i >= 0; i--) {
+        if (exploreHistory[i].triggerClass === className) exploreHistory.splice(i, 1);
+      }
+      toRemove.forEach(cn => {
+        const n = nodes[cn];
+        if (n) { n.el.parentNode && n.el.parentNode.removeChild(n.el); delete nodes[cn]; delete nodePositions[cn]; }
+      });
+      Object.values(nodes).forEach(n => n.el.classList.remove('selected','highlight-up','highlight-down','dimmed'));
+      selectedClass = null;
+      updateUndoButton();
+      const allVisible = Object.values(nodes).map(n => n.entry);
+      const classSet = new Set(allVisible.map(e => e.className));
+      const svgEl = document.getElementById('edges-svg');
+      while (svgEl.firstChild) svgEl.removeChild(svgEl.firstChild);
+      edges = [];
+      drawEdges(allVisible, classSet);
+      refreshExpandBadges();
+      renderMinimap();
+      updateInfoBar(Object.keys(nodes).length, Object.keys(nodes).length, totalCount);
+      return;
+    }
+  }
+
   Object.values(nodes).forEach(n =>
     n.el.classList.remove('selected','highlight-up','highlight-down','dimmed'));
   selectedClass = className;
