@@ -1887,6 +1887,61 @@ function computeLayout(entries, direction) {
   return positions;
 }
 
+// P12-04: Post-render overlap resolution.
+// Reads actual offsetWidth/offsetHeight and iteratively pushes
+// overlapping nodes apart so expanded cards never cover each other.
+function resolveOverlaps() {
+  const PAD = 24;       // minimum gap between any two nodes
+  const MAX_ITERS = 80;
+  const nodeList = Object.values(nodes).filter(n => n.el.style.display !== 'none');
+  if (nodeList.length < 2) return;
+
+  const rects = nodeList.map(n => ({
+    n,
+    x: n.x,
+    y: n.y,
+    w: n.el.offsetWidth  || n.w || 240,
+    h: n.el.offsetHeight || n.h || 50,
+  }));
+
+  let anyMoved = true;
+  for (let iter = 0; iter < MAX_ITERS && anyMoved; iter++) {
+    anyMoved = false;
+    for (let i = 0; i < rects.length; i++) {
+      for (let j = i + 1; j < rects.length; j++) {
+        const a = rects[i], b = rects[j];
+        const dx = (b.x + b.w / 2) - (a.x + a.w / 2);
+        const dy = (b.y + b.h / 2) - (a.y + a.h / 2);
+        const overlapX = (a.w + b.w) / 2 + PAD - Math.abs(dx);
+        const overlapY = (a.h + b.h) / 2 + PAD - Math.abs(dy);
+        if (overlapX <= 0 || overlapY <= 0) continue;
+        // Separate along the axis with less penetration
+        if (overlapX < overlapY) {
+          const shift = overlapX / 2;
+          if (dx >= 0) { a.x -= shift; b.x += shift; }
+          else         { a.x += shift; b.x -= shift; }
+        } else {
+          const shift = overlapY / 2;
+          if (dy >= 0) { a.y -= shift; b.y += shift; }
+          else         { a.y += shift; b.y -= shift; }
+        }
+        anyMoved = true;
+      }
+    }
+  }
+
+  rects.forEach(r => {
+    r.x = Math.round(r.x);
+    r.y = Math.round(r.y);
+    r.n.el.style.left = r.x + 'px';
+    r.n.el.style.top  = r.y + 'px';
+    r.n.x = r.x;
+    r.n.y = r.y;
+    const cn = r.n.el.dataset.class;
+    if (cn) nodePositions[cn] = { x: r.x, y: r.y };
+  });
+}
+
 // ============================================================
 //  F2: Namespace Cluster View
 // ============================================================
@@ -2076,6 +2131,8 @@ function _renderAllImpl() {
     el.style.left  = pos.x + 'px';
     el.style.top   = pos.y + 'px';
     el.style.width = pos.w + 'px';
+    // Re-apply hidden state that survived across re-renders
+    if (hiddenNodes.has(entry.className)) el.style.display = 'none';
     canvas.appendChild(el);
     nodes[entry.className] = { el, entry, x: pos.x, y: pos.y, w: pos.w, h: pos.h };
   });
@@ -2909,10 +2966,16 @@ function _filterEntries(pattern) {
       (e.dependencies || []).forEach(d => neighborNames.add(d.target));
       (e.baseClasses || []).forEach(b => neighborNames.add(b));
     });
-    const matchedNames = new Set(matched.map(e => e.className));
-    const neighbors = allEntries.filter(
-      e => !matchedNames.has(e.className) && neighborNames.has(e.className)
-    );
+    // Use fully-qualified name (namespace::className) to avoid false matches
+    // when two classes share the same className but live in different namespaces.
+    const fqn = e => (e.namespace ? e.namespace + '::' : '') + e.className;
+    const matchedFqns = new Set(matched.map(fqn));
+    const neighbors = allEntries.filter(e => {
+      if (matchedFqns.has(fqn(e))) return false;
+      // Match against both the bare className and the FQN, because dependency
+      // targets in the scanner may be stored either way.
+      return neighborNames.has(fqn(e)) || neighborNames.has(e.className);
+    });
     return { matched, neighbors, isNsFilter };
   }
 
@@ -3297,6 +3360,8 @@ window.addEventListener('mouseup', e => {
     const n = nodes[nodeDrag.className];
     if (n) n.el.classList.remove('node-dragging');
     nodeDrag = null;
+    // Resolve overlaps after drag is released
+    requestAnimationFrame(() => { resolveOverlaps(); redrawEdges(); renderMinimap(); });
   }
   if (rubberStart) {
     const rect = container.getBoundingClientRect();
@@ -3545,6 +3610,7 @@ document.getElementById('btn-expand-all').addEventListener('click', () => {
   });
   requestAnimationFrame(() => {
     Object.values(nodes).forEach(n => { n.h = n.el.offsetHeight; });
+    resolveOverlaps();
     redrawEdges(); renderMinimap();
   });
 });
