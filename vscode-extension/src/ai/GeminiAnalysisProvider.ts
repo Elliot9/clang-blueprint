@@ -1,11 +1,11 @@
 /**
- * ai/ClaudeAnalysisProvider.ts — P15-02.
+ * ai/GeminiAnalysisProvider.ts
  *
- * Implements IAnalysisProvider using the Anthropic Claude API.
- * Requires clangBlueprint.claudeApiKey to be set in VS Code settings.
+ * Implements IAnalysisProvider using the Google Gemini API.
+ * Requires clangBlueprint.geminiApiKey to be set in VS Code settings.
  */
 
-import Anthropic from '@anthropic-ai/sdk';
+import { GoogleGenerativeAI, type Content } from '@google/generative-ai';
 import type {
   IAnalysisProvider,
   ClassEntry,
@@ -16,12 +16,23 @@ import type {
 } from '../shared/types';
 import { LocalAnalysisProvider } from './LocalAnalysisProvider';
 
-// Models: haiku for low-latency single-turn calls, sonnet for chat.
-const HAIKU  = 'claude-haiku-4-5-20251001';
-const SONNET = 'claude-sonnet-4-6';
+// Prefer newer models first; fall back to older ones for compatibility.
+const FAST_MODEL_CANDIDATES = [
+  'gemini-2.5-flash',
+  'gemini-2.0-flash',
+  'gemini-1.5-flash',
+] as const;
+
+const CHAT_MODEL_CANDIDATES = [
+  'gemini-2.5-pro',
+  'gemini-2.5-flash',
+  'gemini-2.0-flash',
+  'gemini-1.5-pro',
+  'gemini-1.5-flash',
+] as const;
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Helpers (shared with ClaudeAnalysisProvider logic)
 // ---------------------------------------------------------------------------
 
 function _classDigest(entry: ClassEntry): string {
@@ -60,16 +71,16 @@ function _chainDigest(steps: CallStep[]): string {
 }
 
 // ---------------------------------------------------------------------------
-// ClaudeAnalysisProvider
+// GeminiAnalysisProvider
 // ---------------------------------------------------------------------------
 
-export class ClaudeAnalysisProvider implements IAnalysisProvider {
-  readonly providerId = 'claude' as const;
-  private readonly client: Anthropic;
+export class GeminiAnalysisProvider implements IAnalysisProvider {
+  readonly providerId = 'gemini' as const;
+  private readonly genAI: GoogleGenerativeAI;
   private readonly _local = new LocalAnalysisProvider();
 
   constructor(private readonly apiKey: string) {
-    this.client = new Anthropic({ apiKey });
+    this.genAI = new GoogleGenerativeAI(apiKey);
   }
 
   async isAvailable(): Promise<boolean> {
@@ -102,13 +113,8 @@ export class ClaudeAnalysisProvider implements IAnalysisProvider {
       'Return ONLY valid JSON. No markdown fences.',
     ].join('\n');
 
-    const msg = await this.client.messages.create({
-      model: HAIKU,
-      max_tokens: 512,
-      messages: [{ role: 'user', content: prompt }],
-    });
+    const text = await this._generateWithFallback(prompt, FAST_MODEL_CANDIDATES);
 
-    const text = msg.content[0].type === 'text' ? msg.content[0].text : '';
     try {
       const parsed = JSON.parse(text) as Partial<AnalysisSummary>;
       return {
@@ -119,7 +125,7 @@ export class ClaudeAnalysisProvider implements IAnalysisProvider {
         notes:            parsed.notes,
       };
     } catch {
-      // Claude returned non-JSON — fall back to local
+      // Gemini returned non-JSON — fall back to local
       return this._local.summarize(entry, context);
     }
   }
@@ -154,13 +160,8 @@ export class ClaudeAnalysisProvider implements IAnalysisProvider {
       ...(ctxDigest ? ['', 'Involved classes:', ctxDigest] : []),
     ].join('\n');
 
-    const msg = await this.client.messages.create({
-      model: HAIKU,
-      max_tokens: 200,
-      messages: [{ role: 'user', content: prompt }],
-    });
-
-    return msg.content[0].type === 'text' ? msg.content[0].text.trim() : chain;
+    const text = await this._generateWithFallback(prompt, FAST_MODEL_CANDIDATES);
+    return text.trim() || chain;
   }
 
   // -------------------------------------------------------------------------
@@ -170,7 +171,6 @@ export class ClaudeAnalysisProvider implements IAnalysisProvider {
   async locateAnchor(errorLog: string, all: ClassEntry[]): Promise<ClassEntry[]> {
     if (!errorLog.trim()) { return []; }
 
-    // First do cheap local filter to get a candidate shortlist
     const localHits = await this._local.locateAnchor(errorLog, all);
     const candidates = localHits.length > 0 ? localHits : all.slice(0, 50);
     const nameList = candidates.map(e => e.className).join(', ');
@@ -186,22 +186,16 @@ export class ClaudeAnalysisProvider implements IAnalysisProvider {
       `Candidate classes: ${nameList}`,
     ].join('\n');
 
-    const msg = await this.client.messages.create({
-      model: HAIKU,
-      max_tokens: 200,
-      messages: [{ role: 'user', content: prompt }],
-    });
+    const text = await this._generateWithFallback(prompt, FAST_MODEL_CANDIDATES);
 
-    const text = msg.content[0].type === 'text' ? msg.content[0].text : '';
     const mentioned = new Set(
       text.split('\n')
         .map(l => l.trim().replace(/^[-*•\d.)\s]+/, ''))
         .filter(Boolean),
     );
 
-    const result = candidates.filter(e => mentioned.has(e.className));
-    // If Claude found nothing, fall back to local results
-    return result.length > 0 ? result : localHits.slice(0, 5);
+    const matched = candidates.filter(e => mentioned.has(e.className));
+    return matched.length > 0 ? matched : localHits.slice(0, 5);
   }
 
   // -------------------------------------------------------------------------
@@ -218,7 +212,7 @@ export class ClaudeAnalysisProvider implements IAnalysisProvider {
       .map(_classDigest)
       .join('\n\n');
 
-    const systemPrompt = [
+    const systemInstruction = [
       'You are an expert C++ code assistant integrated into the clang-blueprint VS Code extension.',
       'You help developers understand a C++ codebase by analysing its class structure.',
       '',
@@ -232,27 +226,50 @@ export class ClaudeAnalysisProvider implements IAnalysisProvider {
         : ['No class context provided — answer based on the conversation only.']),
     ].join('\n');
 
-    // Convert ChatMessage[] → Anthropic MessageParam[]
-    const apiMessages: Anthropic.MessageParam[] = messages
-      .filter(m => m.role !== 'system')
-      .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+    // Convert ChatMessage[] → Gemini Content[] history (all but last message)
+    const nonSystem = messages.filter(m => m.role !== 'system');
+    const history: Content[] = nonSystem.slice(0, -1).map(m => ({
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: m.content }],
+    }));
+    const lastMessage = nonSystem[nonSystem.length - 1]?.content ?? '';
 
-    const stream = this.client.messages.stream({
-      model: SONNET,
-      max_tokens: 1024,
-      system: systemPrompt,
-      messages: apiMessages,
-    });
+    let lastError: unknown;
+    for (const modelName of CHAT_MODEL_CANDIDATES) {
+      try {
+        const model = this.genAI.getGenerativeModel({
+          model: modelName,
+          systemInstruction,
+        });
+        const chatSession = model.startChat({ history });
+        const result = await chatSession.sendMessageStream(lastMessage);
 
-    for await (const event of stream) {
-      if (
-        event.type === 'content_block_delta' &&
-        event.delta.type === 'text_delta'
-      ) {
-        onChunk(event.delta.text);
+        for await (const chunk of result.stream) {
+          const text = chunk.text();
+          if (text) { onChunk(text); }
+        }
+        return;
+      } catch (err) {
+        lastError = err;
       }
     }
+    throw lastError ?? new Error('Gemini chat failed: no compatible model available.');
+  }
 
-    await stream.finalMessage();
+  private async _generateWithFallback(
+    prompt: string,
+    models: readonly string[],
+  ): Promise<string> {
+    let lastError: unknown;
+    for (const modelName of models) {
+      try {
+        const model = this.genAI.getGenerativeModel({ model: modelName });
+        const result = await model.generateContent(prompt);
+        return result.response.text();
+      } catch (err) {
+        lastError = err;
+      }
+    }
+    throw lastError ?? new Error('Gemini request failed: no compatible model available.');
   }
 }

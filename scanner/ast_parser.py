@@ -210,7 +210,7 @@ def _method_signature(cursor: Any) -> str:
             name = f"~{pname}" if pname else "~"
         return f"{name}({param_str})"
 
-    ret = cursor.result_type.spelling if cursor.result_type.spelling else "void"
+    ret = cursor.result_type.spelling if cursor.result_type and cursor.result_type.spelling else "void"
     name = cursor.spelling
     return f"{ret} {name}({param_str})"
 
@@ -342,8 +342,8 @@ class ASTVisitor:
             self._visit_class(cursor)
             return  # _visit_class recurses into children itself
 
-        # P8-05: index free (non-member) functions defined in the project
-        if cursor.kind == CursorKind.FUNCTION_DECL:
+        # P8-05: index free (non-member) functions/templates defined in the project
+        if cursor.kind in (CursorKind.FUNCTION_DECL, CursorKind.FUNCTION_TEMPLATE):
             self._visit_free_function(cursor)
             return
 
@@ -469,6 +469,7 @@ class ASTVisitor:
                             alias_entry = {
                                 "alias": bare_field_type,
                                 "canonical": alias_info["canonical"],
+                                "depType": dep_type,
                             }
                             if alias_entry not in type_aliases_used:
                                 type_aliases_used.append(alias_entry)
@@ -741,11 +742,18 @@ class ASTVisitor:
             return
 
         ns = _get_namespace(cursor)
-        if ns:
+        fn_name = cursor.spelling or ""
+        is_entrypoint = fn_name == "main"
+        basename = os.path.splitext(os.path.basename(file_abs))[0]
+
+        if is_entrypoint:
+            # Keep each TU entrypoint distinct and explicit in diagrams/chat.
+            display_name = f"main@{basename}"
+            group_key = f"__entrypoint__{file_abs}"
+        elif ns:
             group_key = ns
             display_name = ns
         else:
-            basename = os.path.splitext(os.path.basename(file_abs))[0]
             display_name = basename
             group_key = f"__file__{file_abs}"
 
@@ -762,7 +770,11 @@ class ASTVisitor:
             rel_file = self._rel_path(file_abs)
             self._free_fn_entries[group_key] = BlueprintEntry(
                 className=display_name,
-                responsibility="Free Functions",
+                responsibility=(
+                    "Program Entry Point"
+                    if is_entrypoint
+                    else self._infer_free_fn_responsibility(display_name, [])
+                ),
                 dependencies=[],
                 interfaces=[],
                 interfaceMeta=[],
@@ -781,6 +793,11 @@ class ASTVisitor:
                 "lineNumber": loc.line,
                 "usedTypes": param_types,
             })
+            # Re-evaluate category as more free functions are observed.
+            if is_entrypoint:
+                entry.responsibility = "Program Entry Point"
+            else:
+                entry.responsibility = self._infer_free_fn_responsibility(display_name, entry.interfaces)
 
         # Add association dependencies for param types
         seen = {(d.target, d.type) for d in entry.dependencies}
@@ -789,6 +806,24 @@ class ASTVisitor:
             if k not in seen:
                 seen.add(k)
                 entry.dependencies.append(Dependency(target=t, type="association"))
+
+    def _infer_free_fn_responsibility(self, group_name: str, interfaces: list[str]) -> str:
+        """
+        Classify synthetic free-function entries into a more meaningful bucket.
+        """
+        name = (group_name or "").lower()
+        method_blob = " ".join(interfaces).lower()
+        text = f"{name} {method_blob}"
+
+        if re.search(r"(util|utils|helper|common|misc)", text):
+            return "Utility Helpers"
+        if re.search(r"(parse|parser|decode|encode|codec|format|serialize)", text):
+            return "Data Transformation"
+        if re.search(r"(raid|md|disk|nvme|io|driver)", text):
+            return "Storage / IO Helpers"
+        if re.search(r"(test|mock|fixture|stub)", text):
+            return "Test Support"
+        return "Free Functions"
 
     # Naming-convention → responsibility label (T-12)
     _RESPONSIBILITY_PATTERNS: list[tuple[re.Pattern, str]] = [

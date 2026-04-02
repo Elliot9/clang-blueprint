@@ -37,11 +37,13 @@ function cfg<T>(key: string): T {
 // ---------------------------------------------------------------------------
 
 export class AppShell {
+  private readonly output: vscode.OutputChannel;
   private panel: vscode.WebviewPanel | undefined;
   private fileWatcher: vscode.FileSystemWatcher | undefined;
   private selectionDebounce: ReturnType<typeof setTimeout> | undefined;
 
   private provider: IAnalysisProvider | undefined;
+  private providerConfigSignature = '';
   private allEntries: ClassEntry[] = [];
   private reverseDeps: Record<string, string[]> = {};
   private activeMode: AppMode = 'explore';
@@ -51,7 +53,22 @@ export class AppShell {
     chat: undefined,
   };
 
-  constructor(private readonly context: vscode.ExtensionContext) {}
+  constructor(private readonly context: vscode.ExtensionContext) {
+    this.output = vscode.window.createOutputChannel('Clang Blueprint');
+    this.context.subscriptions.push(this.output);
+    this.context.subscriptions.push(
+      vscode.workspace.onDidChangeConfiguration((event) => {
+        if (
+          !event.affectsConfiguration('clangBlueprint.analysisProvider') &&
+          !event.affectsConfiguration('clangBlueprint.claudeApiKey') &&
+          !event.affectsConfiguration('clangBlueprint.geminiApiKey')
+        ) {
+          return;
+        }
+        void this._recreateProviderIfNeeded();
+      }),
+    );
+  }
 
   // ---------------------------------------------------------------------------
   // Panel management
@@ -93,6 +110,8 @@ export class AppShell {
     // Provider is created lazily on first panel open
     if (!this.provider) {
       this.provider = await createProvider();
+      this.providerConfigSignature = this._providerSignature();
+      this._log(`Provider initialized: ${this.provider.providerId}`);
     }
   }
 
@@ -166,6 +185,16 @@ export class AppShell {
     }
   }
 
+  async highlightUpstream(): Promise<void> {
+    const className = await this._resolveClassName();
+    if (className) { this._post({ type: 'highlightUpstream', className }); }
+  }
+
+  async highlightDownstream(): Promise<void> {
+    const className = await this._resolveClassName();
+    if (className) { this._post({ type: 'highlightDownstream', className }); }
+  }
+
   filterDiagram(): void {
     if (!this.panel) {
       vscode.window.showInformationMessage("Open the diagram first with 'Blueprint: Show Class Diagram'.");
@@ -234,11 +263,28 @@ export class AppShell {
       const entries = this.allEntries;
       if (mode === 'explore') { this.controllers.explore = new ExploreController(p, entries); }
       if (mode === 'trace')   { this.controllers.trace   = new TraceController(p, entries, this.reverseDeps); }
-      if (mode === 'chat')    { this.controllers.chat    = new ChatController(p, entries); }
+      if (mode === 'chat')    { this.controllers.chat    = new ChatController(p, entries, (line: string) => this._log(line)); }
     }
 
     this.controllers[mode]!.activate(panel);
     this._post({ type: 'modeChanged', mode });
+  }
+
+  private async _recreateProviderIfNeeded(): Promise<void> {
+    const nextSig = this._providerSignature();
+    if (nextSig === this.providerConfigSignature) { return; }
+
+    this.provider = await createProvider();
+    this.providerConfigSignature = nextSig;
+    this._log(`Provider reloaded from settings: ${this.provider.providerId}`);
+    this.controllers.explore = undefined;
+    this.controllers.trace = undefined;
+    this.controllers.chat = undefined;
+
+    if (this.panel) {
+      await this._reload();
+      vscode.window.setStatusBarMessage('$(sync) Blueprint: analysis provider updated', 3000);
+    }
   }
 
   private async _reload(): Promise<void> {
@@ -258,7 +304,7 @@ export class AppShell {
     if (this.provider) {
       this.controllers.explore = new ExploreController(this.provider, entries);
       this.controllers.trace   = new TraceController(this.provider, entries, this.reverseDeps);
-      this.controllers.chat    = new ChatController(this.provider, entries);
+      this.controllers.chat    = new ChatController(this.provider, entries, (line: string) => this._log(line));
       this.controllers[this.activeMode]!.activate(panel);
     }
 
@@ -269,7 +315,10 @@ export class AppShell {
     this._post({ type: 'layoutDirection', direction: cfg<'TB' | 'LR' | 'BT' | 'RL'>('layoutDirection') ?? 'TB' });
 
     if (entries.length === 0) {
-      vscode.window.showWarningMessage('Clang Blueprint: No entries found. Run "Blueprint: Rebuild Index" first.');
+      const searchedPath = root ? this._indexPath(root) : '(no workspace folder open)';
+      vscode.window.showWarningMessage(
+        `Clang Blueprint: No entries found at "${searchedPath}". Run "Blueprint: Rebuild Index" first.`,
+      );
     } else {
       panel.title = `Blueprint: Class Diagram (${entries.length} classes)`;
     }
@@ -348,6 +397,30 @@ export class AppShell {
     }
   }
 
+  private async _resolveClassName(): Promise<string | undefined> {
+    if (!this.panel) {
+      vscode.window.showInformationMessage("Open the diagram first with 'Blueprint: Show Class Diagram'.");
+      return undefined;
+    }
+    if (!this.allEntries.length) {
+      vscode.window.showWarningMessage('No blueprint entries loaded.');
+      return undefined;
+    }
+    // Try class at current cursor first
+    const editor = vscode.window.activeTextEditor;
+    if (editor) {
+      const entry = this._findClassAtCursor(editor.document, editor.selection.active);
+      if (entry) { return entry.className; }
+    }
+    // Fall back to quick pick
+    const items = this.allEntries.map(e => ({
+      label: e.className,
+      description: e.namespace ?? '',
+    }));
+    const picked = await vscode.window.showQuickPick(items, { placeHolder: 'Select a class to highlight' });
+    return picked?.label;
+  }
+
   private _findClassAtCursor(doc: vscode.TextDocument, position: vscode.Position): ClassEntry | undefined {
     const root = this._workspaceRoot();
     if (!root || !this.allEntries.length) { return undefined; }
@@ -377,6 +450,10 @@ export class AppShell {
     this.panel?.webview.postMessage(msg);
   }
 
+  private _log(line: string): void {
+    this.output.appendLine(`[${new Date().toISOString()}] ${line}`);
+  }
+
   private _workspaceRoot(): string | undefined {
     return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   }
@@ -384,6 +461,13 @@ export class AppShell {
   private _indexPath(root: string): string {
     const p = cfg<string>('blueprintIndexPath');
     return path.isAbsolute(p) ? p : path.join(root, p);
+  }
+
+  private _providerSignature(): string {
+    const provider = cfg<string>('analysisProvider') ?? 'local';
+    const claude = cfg<string>('claudeApiKey') ?? '';
+    const gemini = cfg<string>('geminiApiKey') ?? '';
+    return `${provider}|${claude}|${gemini}`;
   }
 
   private _loadReverseDeps(graphPath: string): Record<string, string[]> {

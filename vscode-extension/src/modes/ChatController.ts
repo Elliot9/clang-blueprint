@@ -14,10 +14,12 @@ import { buildChatContext } from '../analysis/context';
 export class ChatController implements ModeController {
   private panel: vscode.WebviewPanel | undefined;
   private history: ChatMessage[] = [];
+  private static readonly CHAT_TIMEOUT_MS = 120_000;
 
   constructor(
     private readonly provider: IAnalysisProvider,
     private readonly allEntries: ClassEntry[],
+    private readonly log?: (line: string) => void,
   ) {}
 
   activate(panel: vscode.WebviewPanel): void {
@@ -51,21 +53,33 @@ export class ChatController implements ModeController {
 
     // Build rich context: selected classes + their direct deps
     const context = buildChatContext(contextNames, this.allEntries);
+    this.log?.(`Chat request started. provider=${this.provider.providerId} textLen=${text.length} contextCount=${context.length}`);
 
     try {
       let assistantReply = '';
-      await this.provider.chat(this.history, context, (chunk) => {
+      const chatPromise = this.provider.chat(this.history, context, (chunk) => {
         assistantReply += chunk;
         this.panel?.webview.postMessage({ type: 'chatChunk', chunk });
       });
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('AI chat timed out.')), ChatController.CHAT_TIMEOUT_MS);
+      });
+      await Promise.race([chatPromise, timeoutPromise]);
+      this.log?.(`Chat request completed. provider=${this.provider.providerId} replyLen=${assistantReply.length}`);
       // Record assistant reply in history for follow-up turns
-      this.history.push({ role: 'assistant', content: assistantReply });
-      this.panel.webview.postMessage({ type: 'chatDone' });
+      if (assistantReply.trim()) {
+        this.history.push({ role: 'assistant', content: assistantReply });
+      }
     } catch (err) {
+      const errText = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+      this.log?.(`Chat request failed. provider=${this.provider.providerId} error=${errText}`);
       this.panel.webview.postMessage({
         type: 'extensionError',
-        message: `Chat error: ${err}`,
+        message: `Chat error: ${errText}`,
       });
+    } finally {
+      this.log?.('Chat request finalized (chatDone sent).');
+      this.panel.webview.postMessage({ type: 'chatDone' });
     }
   }
 }

@@ -894,10 +894,12 @@
       top: 50%; left: 50%;
       transform: translate(-50%, -50%);
       text-align: center;
-      color: #555;
+      color: #aaa;
+      pointer-events: none;
     }
-    #empty-state h2 { font-size: 18px; margin-bottom: 8px; }
-    #empty-state p  { font-size: 13px; }
+    #empty-state h2 { font-size: 18px; margin-bottom: 8px; color: #ccc; }
+    #empty-state p  { font-size: 13px; line-height: 1.6; }
+    #empty-state .error { color: #f48771; margin-top: 8px; font-size: 11px; max-width: 400px; word-break: break-all; }
   </style>
 </head>
 <body>
@@ -1760,6 +1762,24 @@ window.addEventListener('message', ev => {
     }
     case 'extensionError':
       console.error('Blueprint extension error:', msg.message);
+      {
+        const spinner = document.getElementById('chat-spinner');
+        if (spinner) spinner.style.display = 'none';
+        const inp = document.getElementById('chat-input');
+        if (inp) inp.disabled = false;
+        const sendBtn = document.getElementById('chat-send-btn');
+        if (sendBtn) sendBtn.disabled = false;
+        const out = document.getElementById('chat-output');
+        if (out) {
+          const div = document.createElement('div');
+          div.className = 'chat-msg assistant';
+          div.dataset.role = 'assistant';
+          div.style.borderLeft = '3px solid #f78166';
+          div.textContent = `Error: ${msg.message}`;
+          out.appendChild(div);
+          out.scrollTop = out.scrollHeight;
+        }
+      }
       break;
   }
 });
@@ -2013,6 +2033,21 @@ function _exitClusterView() {
 //  Render
 // ============================================================
 function renderAll() {
+  try {
+    _renderAllImpl();
+  } catch (err) {
+    const emptyEl = document.getElementById('empty-state');
+    if (emptyEl) {
+      emptyEl.style.display = 'block';
+      let errDiv = emptyEl.querySelector('.error');
+      if (!errDiv) { errDiv = document.createElement('p'); errDiv.className = 'error'; emptyEl.appendChild(errDiv); }
+      errDiv.textContent = 'Render error: ' + err.message;
+    }
+    vscode.postMessage({ type: 'error', message: 'renderAll: ' + err.message + '\n' + (err.stack || '') });
+  }
+}
+
+function _renderAllImpl() {
   // F2: delegate to cluster renderer when active
   if (clusterViewActive) { _renderClusterView(allEntries); return; }
 

@@ -125,8 +125,11 @@ export function computeImpact(
 
 /**
  * Return the classes explicitly chosen by the user for the chat context,
- * plus a single hop of their direct dependencies to give the AI structural
- * awareness without overwhelming it with unrelated classes.
+ * plus one hop of direct dependencies and direct dependents.
+ *
+ * Why include dependents:
+ * questions like "who creates X?" often require manager/owner classes that
+ * reference X, which are reverse edges and were previously missing.
  */
 export function buildChatContext(selectedClassNames: string[], all: ClassEntry[]): ClassEntry[] {
   const selected = new Set(selectedClassNames);
@@ -134,13 +137,19 @@ export function buildChatContext(selectedClassNames: string[], all: ClassEntry[]
   // Include selected classes
   const result = all.filter(e => selected.has(e.className));
 
-  // Include their direct deps (not already selected) for structural context
+  // Include direct deps + direct dependents for structural context
   const extraNames = new Set<string>();
   for (const entry of result) {
     for (const dep of entry.dependencies) {
       if (!selected.has(dep.target)) {
         extraNames.add(dep.target);
       }
+    }
+  }
+  for (const entry of all) {
+    const dependsOnSelected = entry.dependencies.some(dep => selected.has(dep.target));
+    if (dependsOnSelected && !selected.has(entry.className)) {
+      extraNames.add(entry.className);
     }
   }
 
