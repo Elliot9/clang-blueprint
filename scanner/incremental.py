@@ -132,6 +132,12 @@ def incremental_scan(
     else:
         patterns = list(exclude_patterns) + load_blueprintignore(str(root))
 
+    print(
+        f"[blueprint] Active exclude patterns ({len(patterns)}): "
+        f"{', '.join(patterns[:8])}{'…' if len(patterns) > 8 else ''}",
+        file=sys.stderr,
+    )
+
     cache = load_cache(cache_path)
     file_cache: dict[str, Any] = cache.get("files", {})
 
@@ -196,6 +202,8 @@ def incremental_scan(
         entries_by_file: dict[str, list[dict[str, Any]]] = {fp: [] for fp in changed_files}
         for entry in newly_parsed_entries:
             file_loc = entry.get("fileLocation", "")
+            if not file_loc:
+                continue
             # fileLocation is relative to project_root
             abs_loc = str((root / file_loc).resolve())
             if abs_loc in entries_by_file:

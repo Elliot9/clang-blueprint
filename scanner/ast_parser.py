@@ -1284,6 +1284,11 @@ def load_blueprintignore(project_root: str) -> list[str]:
     """
     ignore_path = Path(project_root) / ".blueprintignore"
     if not ignore_path.is_file():
+        print(
+            f"[blueprint] No .blueprintignore found at {ignore_path} "
+            "(create one to exclude directories like 3rd_party/**, build/**)",
+            file=sys.stderr,
+        )
         return []
     patterns: list[str] = []
     with open(ignore_path, "r", encoding="utf-8") as f:
@@ -1292,6 +1297,11 @@ def load_blueprintignore(project_root: str) -> list[str]:
             if not line or line.startswith("#"):
                 continue
             patterns.append(line)
+    print(
+        f"[blueprint] Loaded {len(patterns)} pattern(s) from {ignore_path}: "
+        f"{', '.join(patterns[:5])}{'…' if len(patterns) > 5 else ''}",
+        file=sys.stderr,
+    )
     return patterns
 
 
@@ -1357,6 +1367,12 @@ def scan_directory(
         patterns = _DEFAULT_EXCLUDES + load_blueprintignore(project_root)
     else:
         patterns = list(exclude_patterns) + load_blueprintignore(project_root)
+
+    print(
+        f"[blueprint] Active exclude patterns ({len(patterns)}): "
+        f"{', '.join(patterns[:8])}{'…' if len(patterns) > 8 else ''}",
+        file=sys.stderr,
+    )
 
     root = Path(project_root)
     source_files: list[str] = []
