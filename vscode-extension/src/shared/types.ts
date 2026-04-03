@@ -70,6 +70,52 @@ export interface ClassEntry {
 }
 
 // ---------------------------------------------------------------------------
+// Module layer (P21 / P22)
+// ---------------------------------------------------------------------------
+
+export interface ModuleEntry {
+  name: string;
+  namespace?: string;
+  directory?: string;
+  classNames: string[];
+  summarySeed: string;
+  internalEdgeCount: number;
+  externalDeps: { target: string; weight: number; depTypes: string[] }[];
+}
+
+export interface ModuleEdge {
+  source: string;
+  target: string;
+  weight: number;
+  depTypes?: string[];
+}
+
+export interface EntryPoint {
+  className: string;
+  kind: 'main' | 'server' | 'root' | 'hub';
+  reason: string;
+}
+
+/** V2 index wrapper — if version field is missing, treat as V1 (bare ClassEntry[]) */
+export interface BlueprintIndex {
+  version: number;
+  projectName?: string;
+  modules: ModuleEntry[];
+  moduleEdges: ModuleEdge[];
+  entryPoints: EntryPoint[];
+  classes: ClassEntry[];
+}
+
+/** Module-level AI summary (P23) */
+export interface ModuleSummary {
+  intent: string;
+  keyClasses: string[];
+  interactions: string[];
+  entryPath?: string;
+  notes?: string;
+}
+
+// ---------------------------------------------------------------------------
 // Analysis layer outputs
 // ---------------------------------------------------------------------------
 
@@ -170,4 +216,31 @@ export interface IAnalysisProvider {
     context: ClassEntry[],
     onChunk: (chunk: string) => void,
   ): Promise<void>;
+
+  /**
+   * Produce a module-level summary. Used by Explore Mode module overview (P23).
+   */
+  summarizeModule(
+    module: ModuleEntry,
+    classes: ClassEntry[],
+    neighborModules: ModuleEntry[],
+  ): Promise<ModuleSummary>;
+
+  /**
+   * Produce a 1-3 sentence project-level summary. Used by module overview header (P23).
+   */
+  summarizeProject(
+    modules: ModuleEntry[],
+    entryPoints: EntryPoint[],
+  ): Promise<string>;
+
+  /**
+   * Explain why the architecture is structured this way (P24-04).
+   * Returns 2-4 paragraphs of natural language explanation.
+   */
+  explainArchitecture(
+    modules: ModuleEntry[],
+    moduleEdges: ModuleEdge[],
+    focusModule?: string,
+  ): Promise<string>;
 }

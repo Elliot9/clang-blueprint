@@ -294,43 +294,486 @@
 
 ---
 
+## ⚡ Phase 21：Module Abstraction Layer — 模塊抽象層（Scanner 端）
+
+> **問題**：目前 scanner 輸出是扁平的 ClassEntry[]，所有類別處於同一層級。沒有 System → Module → Class 的抽象層級，導致 webview 一開就是數百個 node 攤在畫布上，認知負擔巨大。
+>
+> **目標**：Scanner 輸出新增 module 層，自動聚類，偵測 entry point，為上層 UI 提供分層資料。
+>
+> **成果**：`blueprint_index.json` 新增 `modules[]` 頂層欄位；每個 module 有 name、classes、inter-module edges、auto-generated summary seed。
+
+### M21-01 — Module 聚類演算法（scanner/module_grouper.py）✅
+- 輸入：`ClassEntry[]` + project root
+- 聚類策略（優先順序）：
+  1. 顯式 namespace → 直接成為 module（`core::*` → module "core"）
+  2. 無 namespace 的 class → 依目錄路徑第一層分組（`src/storage/*.cpp` → module "storage"）
+  3. 孤立 class（不屬於任何群組）→ 放入 `_ungrouped` module
+- 輸出：`ModuleEntry[]`，每個含 `{ name, namespace, directory, classNames[], internalEdgeCount, externalDeps[] }`
+- **可獨立開發**：純函數，只依賴 ClassEntry schema
+- **驗收**：用 `examples/storage_engine/` 驗證至少 3 個合理 module 分組
+
+### M21-02 — Inter-module 依賴計算（scanner/module_grouper.py）✅
+- 從 ClassEntry.dependencies 聚合出 module 間的邊
+- 輸出：`ModuleEdge[]`，每個含 `{ source: moduleName, target: moduleName, weight: number, depTypes: string[] }`
+- weight = 該方向的 class-level dependency 數量
+- **可獨立開發**：依賴 M21-01 的 ModuleEntry 型別定義，但實作可同步進行
+- **驗收**：module graph 可轉為 Mermaid graph 驗證
+
+### M21-03 — Entry Point 偵測（scanner/entry_detector.py）✅
+- 掃描 ClassEntry[] 找出以下模式：
+  - `main()` 或 `int main(` 所在的 class / free function
+  - 名稱含 `Server`、`App`、`Handler`、`Controller`、`Main`、`Entry` 的 class
+  - 入度 = 0（沒有其他 class 依賴它）但出度 > 0 的 class（graph root）
+  - 被最多 class 依賴的 top-5（hub class）
+- 輸出：`EntryPoint[]`，每個含 `{ className, kind: 'main'|'server'|'root'|'hub', reason: string }`
+- **可獨立開發**：純函數，只需 ClassEntry[] + reverseDeps
+- **驗收**：在 storage_engine example 中正確找到 main 和至少 2 個 hub class
+
+### M21-04 — Scanner 輸出 schema 擴展（scanner/main.py + ast_parser.py）✅
+- `blueprint_index.json` 新增頂層結構：
+  ```json
+  {
+    "version": 2,
+    "generatedAt": "...",
+    "projectName": "...",
+    "modules": [ ModuleEntry ],
+    "moduleEdges": [ ModuleEdge ],
+    "entryPoints": [ EntryPoint ],
+    "classes": [ ClassEntry ]  // 原有的，位置不變
+  }
+  ```
+- 向下相容：如果 `"version"` 不存在或 = 1，extension 視為舊格式（只有 ClassEntry[]）
+- **依賴**：M21-01, M21-02, M21-03 的型別定義
+- **驗收**：`python -m scanner.main scan` 輸出新格式；舊版 extension 不 crash
+
+### M21-05 — Module-level Summary Seed（scanner/module_grouper.py）✅
+- 對每個 module 生成一段 heuristic summary seed（不需 AI）：
+  - 「Module "storage" contains 12 classes, primarily responsible for {top-3 responsibility labels}. Key hub: DiskManager (used by 8 classes). Entry via BufferPool.」
+- 用 ClassEntry.responsibility 聚合 + entry point + hub 資訊拼接
+- 這段 seed 後續會被 AI provider 精煉成更好的 summary
+- **依賴**：M21-01, M21-03
+- **驗收**：每個 module 有 ≥1 句非空 summary
+
+### M21-06 — 測試（tests/test_module_grouper.py）✅
+- namespace-based 分組 correctness
+- directory-based fallback correctness
+- inter-module edge 計算 correctness
+- entry point 偵測 precision（手動標註 5 個 case）
+- **可獨立開發**：只依賴型別定義
+- **驗收**：`pytest tests/test_module_grouper.py -v` all pass
+
+---
+
+## ⚡ Phase 22：Hierarchical Overview UI — 分層總覽視圖
+
+> **問題**：Webview 一打開就是 class-level nodes，沒有 System → Module 的 drill-down 層級。DeepWiki 式的 landing page 完全缺失。
+>
+> **目標**：新增 Overview 視圖作為 Explore Mode 的預設入口。用戶先看到 module-level 方塊圖，點擊 drill down 到 class level。
+>
+> **成果**：打開 extension 時先看到 5-15 個 module 方塊 + 連線，點擊任一 module 展開其 class nodes。
+
+### M22-01 — TypeScript 型別定義擴展（shared/types.ts）✅
+- 新增：
+  ```typescript
+  interface ModuleEntry {
+    name: string;
+    namespace?: string;
+    directory?: string;
+    classNames: string[];
+    summarySeed: string;
+    internalEdgeCount: number;
+    externalDeps: { target: string; weight: number; depTypes: string[] }[];
+  }
+  interface EntryPoint {
+    className: string;
+    kind: 'main' | 'server' | 'root' | 'hub';
+    reason: string;
+  }
+  interface BlueprintIndex {
+    version: number;
+    projectName?: string;
+    modules: ModuleEntry[];
+    moduleEdges: { source: string; target: string; weight: number }[];
+    entryPoints: EntryPoint[];
+    classes: ClassEntry[];
+  }
+  ```
+- **可獨立開發**：純型別，不影響現有功能
+- **驗收**：`npm run compile` 無型別錯誤
+
+### M22-02 — AppShell 解析 v2 index + 向下相容（shell/AppShell.ts）✅
+- 讀取 `blueprint_index.json` 時：
+  - 如果是 array → v1 格式，包進 `{ version: 1, modules: [], classes: array }`
+  - 如果是 object with `version: 2` → 直接使用
+- `allEntries` 不變（仍是 ClassEntry[]），新增 `allModules: ModuleEntry[]`、`entryPoints: EntryPoint[]`
+- postMessage 給 webview 時增加 `modules` 和 `entryPoints` payload
+- **依賴**：M22-01 型別
+- **驗收**：v1 格式 JSON 載入不 break；v2 格式 modules 正確傳到 webview
+
+### M22-03 — Webview: Module Overview 渲染器（index.html）✅
+- 新增 `renderModuleOverview(modules, moduleEdges, entryPoints)` 函數
+- 每個 module 渲染為一個大方塊（寬 200px+）：
+  - 標題 = module name
+  - 副標題 = class 數量 badge（「12 classes」）
+  - entry point 標記（⚡ icon）
+  - summarySeed 前 80 字元
+- module 之間依 moduleEdges 畫線（weight 越大線越粗）
+- 佈局：force-directed 或 grid，module 數量少（5-15），不需複雜佈局
+- **依賴**：M22-01 型別；不依賴 M22-02（可用 mock 資料開發）
+- **驗收**：傳入 mock modules 資料，畫面顯示正確方塊 + 連線
+
+### M22-04 — Webview: Module Drill-down 互動（index.html）✅
+- 點擊 module 方塊 → 展開該 module 的 class nodes（現有 renderAll 邏輯）
+  - 只顯示該 module 內的 classes + 它們的 1-hop 外部依賴
+  - 頂部顯示 breadcrumb：`Overview > storage`
+- breadcrumb 點擊 `Overview` → 返回 module 視圖
+- 左 Panel namespace 樹同步高亮當前 drill-down 的 module
+- **依賴**：M22-03
+- **驗收**：可在 module view ↔ class view 間自由切換；breadcrumb 正確
+
+### M22-05 — Webview: Entry Point 引導（index.html）✅
+- Module Overview 上，entry point class 所在的 module 有特殊高亮（金色邊框）
+- 首次載入時顯示一行引導文字：「Start exploring from {entryPointName} — it's the main entry to this codebase」
+- 引導文字可點擊 → 直接 drill down 到該 module 並選中 entry point class
+- **依賴**：M22-03, M21-03 的 EntryPoint 資料
+- **驗收**：有 entry point 時顯示引導；點擊後正確 drill down
+
+### M22-06 — ExploreController 適配（modes/ExploreController.ts）✅
+- Explore Mode activate 時：
+  - 如果有 modules 資料 → 預設顯示 Module Overview（M22-03）
+  - 如果沒有（v1 index）→ fallback 到現有行為
+- 處理 `moduleDrillDown` / `moduleOverview` webview message
+- **依賴**：M22-01, M22-02
+- **驗收**：v2 index → 顯示 module overview；v1 index → 現有行為不變
+
+---
+
+## ⚡ Phase 23：AI Narrative Layer — 敘事層
+
+> **問題**：目前只有結構資料（what depends on what），缺少自然語言敘事回答 why 和 how。用戶看到 dependency edge 但不知道設計意圖。
+>
+> **目標**：每個層級（system / module / class）都有 AI 生成的自然語言摘要。摘要是 lazy-load 的，不增加初始載入時間。
+>
+> **成果**：選中 module 或 class 時右 Panel 顯示 intent + responsibilities + 關鍵互動說明。
+
+### M23-01 — IAnalysisProvider 擴展：summarizeModule()（shared/types.ts + providers）✅
+- 新增方法：
+  ```typescript
+  summarizeModule(
+    module: ModuleEntry,
+    classes: ClassEntry[],
+    neighborModules: ModuleEntry[],
+  ): Promise<ModuleSummary>;
+  ```
+- `ModuleSummary` 型別：
+  ```typescript
+  interface ModuleSummary {
+    intent: string;          // 一句話：這個 module 做什麼
+    keyClasses: string[];    // 最重要的 3-5 個 class
+    interactions: string[];  // 與其他 module 的關鍵互動（2-4 句）
+    entryPath?: string;      // 建議的探索入口 class
+    notes?: string;
+  }
+  ```
+- **可獨立開發**：純型別 + interface 擴展
+- **驗收**：compile 通過
+
+### M23-02 — LocalAnalysisProvider.summarizeModule()（ai/LocalAnalysisProvider.ts）✅
+- Heuristic 實作（不需 AI）：
+  - intent = 聚合 module 內 class 的 responsibility labels（取最高頻）
+  - keyClasses = 依 dependency 入度排序取 top-5
+  - interactions = 從 externalDeps 生成 「depends on module X for {depType}」
+  - entryPath = module 內的 entry point（如有）或 hub class
+- **可獨立開發**：純函數
+- **驗收**：對 mock data 返回合理結構
+
+### M23-03 — ClaudeAnalysisProvider.summarizeModule()（ai/ClaudeAnalysisProvider.ts）✅
+- Prompt 設計：
+  - 提供 module 內所有 class 的 _classDigest + 相鄰 module 的名稱/class 清單
+  - 要求回傳 ModuleSummary JSON
+  - 使用 HAIKU model（低延遲，module summary 是單次調用）
+- 錯誤回退 → LocalAnalysisProvider.summarizeModule()
+- **可獨立開發**：只依賴 M23-01 型別
+- **驗收**：Claude API 返回合法 ModuleSummary；network error 時 fallback 正確
+
+### M23-04 — GeminiAnalysisProvider.summarizeModule()（ai/GeminiAnalysisProvider.ts）✅
+- 與 M23-03 同構，使用 Gemini flash model
+- **可與 M23-03 並行開發**
+- **驗收**：同 M23-03
+
+### M23-05 — Webview: Module Summary Panel（index.html 右 Panel）✅
+- Module Overview 模式下，點擊 module 方塊時：
+  - 右 Panel 顯示 module summary（intent、keyClasses、interactions）
+  - keyClasses 可點擊 → drill down 到 class level 並選中
+  - Loading state：顯示 summarySeed（M21-05 的 heuristic），AI summary 回來後替換
+- Drill-down 到 class level 後：右 Panel 切回現有的 class AnalysisSummary
+- **依賴**：M22-03（module 渲染）、M23-01（ModuleSummary 型別）
+- **驗收**：點擊 module → 右 Panel 顯示 loading → 顯示 summary；keyClasses 可點擊
+
+### M23-06 — System-level 一句話摘要（AI provider + Webview）✅
+- IAnalysisProvider 新增 `summarizeProject(modules, entryPoints): Promise<string>`
+  - 輸入所有 module name + class count + entry points
+  - 輸出 1-3 句話描述整個專案做什麼
+- Webview Module Overview 頂部顯示這段摘要
+- Local provider：拼接「Project with N modules, entry via {main class}, focused on {top responsibility}」
+- Claude/Gemini：一次 API call，限 150 tokens
+- **依賴**：M21-04（modules 資料）、M23-01
+- **驗收**：Module Overview 頂部有 project 摘要文字
+
+---
+
+## ⚡ Phase 24：Guided Exploration — 引導式探索
+
+> **問題**：目前 Explore mode 是 BFS on graph without guide — 用戶點卡片展開鄰居，但不知道「接下來看什麼最有價值」。對比 autoresearch 的 explore → synthesize → prioritize → drill deeper 循環，我們缺少 synthesize 和 prioritize。
+>
+> **目標**：每次展開後，AI 建議下一步；提供預設探索路徑；支援 query-driven 探索。
+>
+> **成果**：Explore Mode 有「Suggested Next」提示；可從自然語言描述開始定位相關 module。
+
+### M24-01 — Exploration Suggestion Engine（analysis/explore_advisor.ts）✅
+- 純函數，輸入：
+  - `currentlyVisible: ClassEntry[]`（畫布上的 nodes）
+  - `allEntries: ClassEntry[]`
+  - `exploreHistory: {triggerClass, addedClasses}[]`
+  - `moduleContext: ModuleEntry[]`
+- 輸出：`ExplorationSuggestion[]`（最多 3 個）：
+  ```typescript
+  interface ExplorationSuggestion {
+    targetClass: string;
+    reason: string;      // 「DiskManager is the hub of this module with 8 dependents」
+    priority: 'high' | 'medium';
+    kind: 'hub' | 'boundary' | 'unexplored' | 'flow-next';
+  }
+  ```
+- 策略：
+  1. **hub**：目前可見 class 中 dependency 入度最高但尚未展開的
+  2. **boundary**：連接到另一個 module 的 class（跨界探索）
+  3. **unexplored**：與當前 context 強相關但還沒出現在畫布上的
+  4. **flow-next**：如果用戶剛看完 A 的 call chain，建議 chain 的下一站
+- **可獨立開發**：純函數，不需 AI
+- **驗收**：單元測試覆蓋四種策略
+
+### M24-02 — Webview: Suggestion Chip Bar（index.html）✅
+- Canvas 底部（info bar 上方）顯示 1-3 個 suggestion chip：
+  - `💡 Explore DiskManager — hub of storage module`
+  - `🔗 Cross to network::SocketPool — boundary class`
+- 點擊 chip → 等同於 selectNode(targetClass)，展開該 class 的鄰居
+- 每次 selectNode / undo / toggle-collapse 後重新計算 suggestions
+- 可 dismiss（X 按鈕），dismiss 後該 suggestion 不再出現
+- **依賴**：M24-01 的 ExplorationSuggestion 型別
+- **驗收**：展開 class 後底部出現 chip；點擊 chip 觸發正確展開
+
+### M24-03 — Query-driven Module Filter（ExploreController + Webview）✅
+- Explore Mode 搜尋框增強：
+  - 輸入自然語言（如 「how does the read path work」）
+  - 先 `findRelevant()` 找出相關 class
+  - 從相關 class 反推所屬 module
+  - Module Overview 中只高亮相關 module（其他 dim）；或直接 drill down 到最相關 module
+- 搜尋結果面板顯示：「Found in modules: storage (4 classes), io (2 classes)」
+- **依賴**：M22-03（module view）、現有 findRelevant()
+- **驗收**：輸入 feature 描述 → 正確高亮 module → drill down 顯示相關 class
+
+### M24-04 — AI-powered 「Why This Architecture」 解釋（IAnalysisProvider）✅
+- IAnalysisProvider 新增：
+  ```typescript
+  explainArchitecture(
+    modules: ModuleEntry[],
+    moduleEdges: ModuleEdge[],
+    focusModule?: string,
+  ): Promise<string>;
+  ```
+- 用戶在 Module Overview 右鍵 → 「Explain architecture」：
+  - AI 輸出 2-4 段，解釋為什麼系統分成這些 module、module 間的關鍵互動、設計 tradeoff
+- Local provider：基於 module 依賴拓撲生成模板化說明
+- Claude/Gemini：完整 prompt，限 500 tokens
+- **可獨立開發**：interface 擴展 + provider 實作
+- **驗收**：右鍵選單出現選項；AI 返回可讀的架構解釋
+
+### M24-05 — Suggested Exploration Path（預設路徑）✅
+- 載入 v2 index 時，自動生成一條建議探索路徑：
+  - 從 entry point 出發 → 沿最重 dependency edge 走 → 經過 3-5 個 module
+  - 輸出 `ExplorationPath: { steps: { moduleName, className, reason }[] }`
+- Module Overview 上以虛線 + 數字標記這條路徑（1 → 2 → 3 → ...）
+- 左 Panel 顯示路徑清單，可點擊跳到對應 module
+- **依賴**：M21-03（entry points）、M21-02（module edges）
+- **驗收**：有 entry point 的 index → 自動生成 ≥3 步路徑
+
+---
+
+## ⚡ Phase 25：Flow-first Navigation — 資料流視角
+
+> **問題**：目前只有結構視角（class 有哪些 dependency），缺少行為視角（一個 request 怎麼流過系統）。call chain 資料存在但沒有被提升為一等公民。
+>
+> **目標**：支援「show me the read path」式的 flow query；在 module overview 層級也能看到跨 module 資料流。
+>
+> **成果**：Trace Mode 新增 Flow View，選定一條 flow → 高亮整條路徑涉及的 module 和 class。
+
+### M25-01 — Flow 擷取：跨 class call chain 拼接（analysis/flow_builder.ts）✅
+- 輸入：起點 class + method，`blueprint_graph.json` 的 call chain 資料
+- 遞迴拼接：A::foo() → B::bar() → C::baz()，直到 chain 終止或深度 > 10
+- 輸出：`Flow[]`：
+  ```typescript
+  interface Flow {
+    name: string;           // auto-generated: 「A::foo → C::baz」
+    steps: FlowStep[];
+    crossedModules: string[];  // 經過了哪些 module
+  }
+  interface FlowStep {
+    className: string;
+    method: string;
+    module: string;
+    action: 'call' | 'read' | 'write';
+  }
+  ```
+- **可獨立開發**：純函數
+- **驗收**：從 entry point method 出發，生成 ≥1 條跨 class flow
+
+### M25-02 — Flow Discovery：自動找出 key flows（analysis/flow_builder.ts）✅
+- 不需要用戶指定起點；自動從 entry points 的 public methods 出發
+- 過濾掉太短（< 3 步）或純 self-reference 的 flow
+- 依 flow 長度和跨 module 數排序，取 top-10 作為 「Key Flows」
+- **依賴**：M25-01, M21-03
+- **驗收**：自動產出 ≥3 條有意義的 flow
+
+### M25-03 — Webview: Flow Overlay on Module Overview（index.html）✅
+- Module Overview 模式下，左 Panel 新增 「Key Flows」section
+- 每條 flow 一行：`Read Path: DiskManager → BufferPool → PageCache（3 modules）`
+- hover flow → module overview 上高亮該 flow 經過的 module（彩色邊框 + 方向箭頭）
+- 點擊 flow → drill down 到一個專門的 flow view：只顯示該 flow 涉及的 class，按順序排列
+- **依賴**：M25-02, M22-03
+- **驗收**：hover 高亮正確 module；點擊顯示 flow 涉及的 class
+
+### M25-04 — Trace Mode: Flow Query（modes/TraceController.ts + Webview）✅
+- Trace Mode 新增 flow 搜尋：
+  - 輸入自然語言（「how does a write request flow through the system」）
+  - AI `findRelevant` 找相關 class → 從這些 class 的 method 出發拼 flow → 返回最匹配的 flow
+  - Canvas 顯示 flow view（同 M25-03 的 drill-down 結果）
+- **依賴**：M25-01, 現有 findRelevant
+- **驗收**：輸入 flow 描述 → 顯示相關 flow path
+
+---
+
+## ⚡ Phase 26：Prose + Diagram Integration — 圖文整合
+
+> **問題**：圖（canvas）和文字（summary / chat）是分離的兩個區域。無法在看圖的同時看到 module 說明，也無法從 AI 回答直接操作圖。
+>
+> **目標**：AI 回應中的 class/module 名稱可點擊操作畫布；畫布上的 hover 顯示 inline summary。
+>
+> **成果**：圖和文字雙向互動，形成 DeepWiki 式的圖文並茂體驗。
+
+### M26-01 — Webview: Node Hover Tooltip 增強（index.html）✅
+- 現有 hover tooltip 只顯示 class name
+- 增強為 rich tooltip（300px 寬）：
+  - intent（一句話）— 來自 AnalysisSummary.intent（如有，否則 responsibility）
+  - dependency 數量 + base class
+  - 「Click to explore, double-click to jump to source」
+- Module 方塊 hover：顯示 summarySeed / ModuleSummary.intent
+- **可獨立開發**：純 UI 改動
+- **驗收**：hover 顯示 rich tooltip；無 summary 時 fallback 到 responsibility
+
+### M26-02 — Chat 回應中的可點擊連結（index.html Chat Panel）✅
+- Chat Mode AI 回應中出現的 class name / module name：
+  - 用 regex 匹配已知的 className 和 moduleName
+  - 包裝為 `<span class="clickable-ref">ClassName</span>`
+  - 點擊 → 如果在 Explore mode，selectNode(className)；如果在 Chat mode，postMessage 要求切到 Explore + selectNode
+- method 名稱（`ClassName::methodName`）→ 點擊跳到源碼
+- **依賴**：現有 chat rendering
+- **驗收**：AI 回應中 class name 出現藍色連結；點擊觸發正確動作
+
+### M26-03 — Canvas ↔ Chat 雙向同步 ✅
+- 在 Canvas 上選中 class → Chat 左 Panel 的 context builder 自動加入該 class
+- 在 Chat 回答中點擊 class → Canvas 同步聚焦（如果 canvas 有該 node）
+- Chat 中 AI 建議 「you should also look at X」 → X 自動出現在 suggestion chip（M24-02）
+- **依賴**：M24-02, M26-02
+- **驗收**：選 canvas node → chat context 更新；chat 點擊 → canvas 聚焦
+
+---
+
+## 並行開發地圖
+
+```
+                         ┌──────────────────┐
+                         │  M21-01 ~ M21-06 │  Phase 21: Scanner Module Layer
+                         │  (Python, 獨立)   │
+                         └────────┬─────────┘
+                                  │ produces v2 index
+          ┌───────────────────────┼──────────────────────┐
+          ▼                       ▼                      ▼
+┌─────────────────┐   ┌─────────────────┐   ┌───────────────────┐
+│  M22-01 ~ M22-06│   │  M23-01 ~ M23-06│   │  M25-01 ~ M25-04  │
+│  Phase 22: UI   │   │  Phase 23: AI   │   │  Phase 25: Flow   │
+│  (TypeScript)   │   │  Narrative      │   │  (TypeScript)     │
+│  (Webview)      │   │  (Providers)    │   │  (analysis/)      │
+└────────┬────────┘   └────────┬────────┘   └─────────┬─────────┘
+         │                     │                      │
+         └─────────┬───────────┘                      │
+                   ▼                                  │
+         ┌─────────────────┐                          │
+         │  M24-01 ~ M24-05│◄─────────────────────────┘
+         │  Phase 24:      │
+         │  Guided Explore │
+         └────────┬────────┘
+                  ▼
+         ┌─────────────────┐
+         │  M26-01 ~ M26-03│
+         │  Phase 26:      │
+         │  Integration    │
+         └─────────────────┘
+```
+
+**可完全並行的工作流：**
+- 🟢 Phase 21（全部）：Python 端，不動 TypeScript
+- 🟢 M22-01 + M22-03：TypeScript 型別 + Webview mock 渲染，不需 scanner 產出
+- 🟢 M23-01 + M23-02：型別 + local provider，不需 UI
+- 🟢 M25-01 + M25-02：flow builder 純函數，不需 UI
+- 🟢 M24-01：suggestion engine 純函數，不需 UI
+- 🟢 M26-01：hover tooltip，不依賴新 phase
+
+**關鍵串接點：**
+- M21-04 完成 → M22-02 可接（v2 index 解析）
+- M22-03 完成 → M22-04, M22-05, M25-03 可接（module 渲染基礎）
+- M23-01 完成 → M23-03, M23-04 可並行（provider 實作）
+- M24-01 完成 → M24-02 可接（chip UI）
+
+---
+
+## 優先順序
+
+> Phase 1–20 全部完成。
+
+**Phase 21–26 建議執行順序：**
+
+1. **P21**（Module Layer）→ 所有新功能的資料基礎，必須先完成
+2. **P22 + P23 + P25**（可並行）→ UI 分層 + AI 敘事 + Flow，三條線獨立推進
+3. **P24**（Guided Explore）→ 依賴 P22 的 module view + P25 的 flow data
+4. **P26**（Integration）→ 最後整合，依賴 P22–P25 都就緒
+
+**里程碑：**
+- **M1**：P21 完成 → 用 CLI 驗證 `blueprint_index.json` v2 結構正確
+- **M2**：P22 完成 → 打開 extension 看到 module overview，可 drill down
+- **M3**：P23 + P25 完成 → module 有 AI summary，有 key flows
+- **M4**：P24 + P26 完成 → 引導式探索 + 圖文整合，產品體驗閉環
+
+---
+
 ## 架構總覽
 
 ```
 Shell Layer      (VS Code Extension)   命令、lifecycle、訊息路由
 Mode Controllers                       Explore / Trace / Chat 各自邏輯，互不知道
 View Layer       (Webview)             Canvas + Panels，純 UI，不含業務邏輯
+  └─ NEW: Module Overview              System → Module drill-down 視圖
+  └─ NEW: Flow View                    資料流路徑視圖
+  └─ NEW: Suggestion Chips             引導式探索提示
 Analysis Layer                         call graph、impact、dependency 精煉
-AI Layer                               IAnalysisProvider（local / claude 插拔）
+  └─ NEW: module_grouper               namespace/directory 聚類 → module
+  └─ NEW: entry_detector               entry point 偵測
+  └─ NEW: flow_builder                 跨 class call chain 拼接
+  └─ NEW: explore_advisor              探索建議引擎
+AI Layer                               IAnalysisProvider（local / claude / gemini 插拔）
+  └─ NEW: summarizeModule()            module 級 AI 摘要
+  └─ NEW: summarizeProject()           system 級 AI 摘要
+  └─ NEW: explainArchitecture()        架構設計意圖解釋
 Data Layer       (Scanner)             AST → 結構化資料，不知道 UI 存在
+  └─ NEW: blueprint_index.json v2      modules[] + moduleEdges[] + entryPoints[]
 ```
-
-## IAnalysisProvider Interface
-
-```typescript
-interface IAnalysisProvider {
-  readonly providerId: 'local' | 'claude';
-  isAvailable(): Promise<boolean>;
-  summarize(entry: ClassEntry): Promise<string>;
-  findRelevant(query: string, all: ClassEntry[]): Promise<ClassEntry[]>;
-  explainChain(steps: CallStep[], context: ClassEntry[]): Promise<string>;
-  locateAnchor(errorLog: string, all: ClassEntry[]): Promise<ClassEntry[]>;
-  chat(messages: ChatMessage[], context: ClassEntry[], onChunk: (chunk: string) => void): Promise<void>;
-}
-```
-
----
-
-## 優先順序
-
-> Phase 1–12 全部完成。
-
-**進行中 / 待開始（Phase 13–20）建議執行順序：**
-
-1. **P13**（Foundation）→ 先建立 interface 契約，後續所有層都依賴它
-2. **P14**（Data Layer）→ 修正 scanner 的根本問題，後續 analysis 需要乾淨的資料
-3. **P15**（AI Layer）→ 建立可插拔 provider，Chat Mode 需要它
-4. **P16 + P17**（Shell + View，可並行）→ 重構架構骨架
-5. **P18**（Explore Mode）→ 第一個完整 mode，新人入口
-6. **P19**（Trace Mode）→ 承接現有 trace 功能，老手入口
-7. **P20**（Chat Mode）→ 需要 AI Layer + Context Builder 就緒後才開始

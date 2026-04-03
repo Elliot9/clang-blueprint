@@ -12,6 +12,10 @@ import type {
   ChatMessage,
   AnalysisSummary,
   RelevanceMatch,
+  ModuleEntry,
+  ModuleEdge,
+  EntryPoint,
+  ModuleSummary,
 } from '../shared/types';
 
 // ---------------------------------------------------------------------------
@@ -223,5 +227,101 @@ export class LocalAnalysisProvider implements IAnalysisProvider {
       'set `clangBlueprint.analysisProvider` to `"claude"` or `"gemini"` ' +
       'and add the corresponding API key in settings.',
     );
+  }
+
+  async summarizeModule(
+    module: ModuleEntry,
+    classes: ClassEntry[],
+    neighborModules: ModuleEntry[],
+  ): Promise<ModuleSummary> {
+    // Build className → ClassEntry lookup for this module
+    const classSet = new Set(module.classNames);
+    const modClasses = classes.filter(c => classSet.has(c.className));
+
+    // Key classes: sort by dependency in-degree (most depended on first)
+    const inDeg: Record<string, number> = {};
+    for (const c of modClasses) {
+      for (const d of c.dependencies) {
+        if (classSet.has(d.target)) {
+          inDeg[d.target] = (inDeg[d.target] ?? 0) + 1;
+        }
+      }
+    }
+    const keyClasses = Object.entries(inDeg)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([name]) => name);
+    if (keyClasses.length === 0 && module.classNames.length > 0) {
+      keyClasses.push(...module.classNames.slice(0, 3));
+    }
+
+    // Interactions with neighbor modules
+    const interactions = module.externalDeps
+      .slice(0, 4)
+      .map(d => `Depends on module "${d.target}" (${d.weight} connections via ${d.depTypes.join(', ')})`);
+
+    // Intent from responsibility aggregation
+    const respCount: Record<string, number> = {};
+    for (const c of modClasses) {
+      const r = c.responsibility;
+      if (r && r !== 'Unknown') { respCount[r] = (respCount[r] ?? 0) + 1; }
+    }
+    const topResp = Object.entries(respCount)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([r]) => r);
+    const intent = topResp.length > 0
+      ? `Module "${module.name}" — ${topResp.join(', ')}`
+      : `Module "${module.name}" with ${module.classNames.length} classes`;
+
+    return { intent, keyClasses, interactions };
+  }
+
+  async summarizeProject(
+    modules: ModuleEntry[],
+    entryPoints: EntryPoint[],
+  ): Promise<string> {
+    const mainEps = entryPoints.filter(e => e.kind === 'main');
+    const totalClasses = modules.reduce((s, m) => s + m.classNames.length, 0);
+    const topModules = modules
+      .sort((a, b) => b.classNames.length - a.classNames.length)
+      .slice(0, 4)
+      .map(m => m.name);
+    const parts = [`Project with ${totalClasses} classes across ${modules.length} modules`];
+    if (topModules.length) { parts.push(`core modules: ${topModules.join(', ')}`); }
+    if (mainEps.length) { parts.push(`entry via ${mainEps[0].className}`); }
+    return parts.join('. ') + '.';
+  }
+
+  async explainArchitecture(
+    modules: ModuleEntry[],
+    moduleEdges: ModuleEdge[],
+    focusModule?: string,
+  ): Promise<string> {
+    const lines: string[] = [];
+    const sorted = [...modules].sort((a, b) => b.classNames.length - a.classNames.length);
+
+    if (focusModule) {
+      const mod = sorted.find(m => m.name === focusModule);
+      if (mod) {
+        lines.push(`Module "${mod.name}" contains ${mod.classNames.length} classes.`);
+        const outEdges = moduleEdges.filter(e => e.source === mod.name);
+        const inEdges = moduleEdges.filter(e => e.target === mod.name);
+        if (outEdges.length) {
+          lines.push(`It depends on: ${outEdges.map(e => `${e.target} (${e.weight} connections)`).join(', ')}.`);
+        }
+        if (inEdges.length) {
+          lines.push(`It is depended upon by: ${inEdges.map(e => `${e.source} (${e.weight} connections)`).join(', ')}.`);
+        }
+      }
+    } else {
+      lines.push(`This project is organized into ${modules.length} modules.`);
+      lines.push(`The largest modules are: ${sorted.slice(0, 5).map(m => `${m.name} (${m.classNames.length} classes)`).join(', ')}.`);
+      if (moduleEdges.length) {
+        const heaviest = [...moduleEdges].sort((a, b) => b.weight - a.weight).slice(0, 3);
+        lines.push(`Key inter-module connections: ${heaviest.map(e => `${e.source} → ${e.target} (${e.weight})`).join(', ')}.`);
+      }
+    }
+    return lines.join(' ');
   }
 }

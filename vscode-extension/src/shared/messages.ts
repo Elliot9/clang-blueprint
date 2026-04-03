@@ -9,7 +9,9 @@
  * Both sides import from this file; this file has no vscode import.
  */
 
-import type { ClassEntry, CallStep, ChatMessage, RelevanceMatch } from './types';
+import type { ClassEntry, CallStep, ChatMessage, RelevanceMatch, ModuleEntry, ModuleEdge, EntryPoint, ModuleSummary } from './types';
+import type { ExplorationPath } from '../analysis/explorationPath';
+import type { Flow } from '../analysis/flowBuilder';
 
 // ---------------------------------------------------------------------------
 // Active application mode
@@ -123,6 +125,47 @@ export interface MsgExtensionError {
   message: string;
 }
 
+/** Module overview data for v2 index (P22) */
+export interface MsgModulesLoaded {
+  type: 'modulesLoaded';
+  modules: ModuleEntry[];
+  moduleEdges: ModuleEdge[];
+  entryPoints: EntryPoint[];
+  projectName?: string;
+}
+
+/** Module-level AI summary result (P23) */
+export interface MsgModuleSummaryResult {
+  type: 'moduleSummaryResult';
+  moduleName: string;
+  summary: ModuleSummary;
+}
+
+/** Project-level summary (P23) */
+export interface MsgProjectSummary {
+  type: 'projectSummary';
+  summary: string;
+}
+
+/** Suggested exploration path (M24-05) */
+export interface MsgExplorationPath {
+  type: 'explorationPath';
+  path: ExplorationPath;
+}
+
+/** Key flows for module overview (M25-03) */
+export interface MsgKeyFlows {
+  type: 'keyFlows';
+  flows: Flow[];
+}
+
+/** Flow query result for Trace Mode (M25-04) */
+export interface MsgFlowResult {
+  type: 'flowResult';
+  query: string;
+  flows: Flow[];
+}
+
 export type ExtensionToWebview =
   | MsgIndexLoaded
   | MsgModeChanged
@@ -138,7 +181,13 @@ export type ExtensionToWebview =
   | MsgChatDone
   | MsgAnchorResult
   | MsgLayoutDirection
-  | MsgExtensionError;
+  | MsgExtensionError
+  | MsgModulesLoaded
+  | MsgModuleSummaryResult
+  | MsgProjectSummary
+  | MsgExplorationPath
+  | MsgKeyFlows
+  | MsgFlowResult;
 
 // ---------------------------------------------------------------------------
 // Webview → Extension Host
@@ -235,6 +284,35 @@ export interface WvError {
   message: string;
 }
 
+/** Explore Mode: user clicked a module to request its summary (P23) */
+export interface WvRequestModuleSummary {
+  type: 'requestModuleSummary';
+  moduleName: string;
+}
+
+/** Explore Mode: user drilled down into a module (P22) */
+export interface WvModuleDrillDown {
+  type: 'moduleDrillDown';
+  moduleName: string;
+}
+
+/** Explore Mode: user navigated back to module overview (P22) */
+export interface WvModuleOverview {
+  type: 'moduleOverview';
+}
+
+/** Trace Mode: user submitted a flow query (M25-04) */
+export interface WvFlowQuery {
+  type: 'flowQuery';
+  query: string;
+}
+
+/** Canvas selection sync → chat context (M26-03) */
+export interface WvCanvasSelect {
+  type: 'canvasSelect';
+  className: string;
+}
+
 export type WebviewToExtension =
   | WvReady
   | WvModeSwitch
@@ -249,4 +327,9 @@ export type WebviewToExtension =
   | WvContextUpdate
   | WvSearch
   | WvCopyText
-  | WvError;
+  | WvError
+  | WvRequestModuleSummary
+  | WvModuleDrillDown
+  | WvModuleOverview
+  | WvFlowQuery
+  | WvCanvasSelect;

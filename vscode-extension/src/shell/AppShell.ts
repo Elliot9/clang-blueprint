@@ -17,12 +17,14 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import type { ModeController } from './ModeController';
-import type { ClassEntry, IAnalysisProvider } from '../shared/types';
+import type { ClassEntry, IAnalysisProvider, ModuleEntry, ModuleEdge, EntryPoint } from '../shared/types';
 import type { AppMode, ExtensionToWebview, WebviewToExtension } from '../shared/messages';
 import { ExploreController } from '../modes/ExploreController';
 import { TraceController } from '../modes/TraceController';
 import { ChatController } from '../modes/ChatController';
 import { createProvider } from '../ai/factory';
+import { generateExplorationPath } from '../analysis/explorationPath';
+import { discoverKeyFlows } from '../analysis/flowBuilder';
 
 // ---------------------------------------------------------------------------
 // Config helpers
@@ -46,6 +48,10 @@ export class AppShell {
   private providerConfigSignature = '';
   private allEntries: ClassEntry[] = [];
   private reverseDeps: Record<string, string[]> = {};
+  private allModules: ModuleEntry[] = [];
+  private moduleEdges: ModuleEdge[] = [];
+  private entryPoints: EntryPoint[] = [];
+  private projectName = '';
   private activeMode: AppMode = 'explore';
   private controllers: Record<AppMode, ModeController | undefined> = {
     explore: undefined,
@@ -242,6 +248,16 @@ export class AppShell {
       case 'error':
         vscode.window.showErrorMessage(`Blueprint webview error: ${msg.message}`);
         return;
+
+      case 'canvasSelect':
+        // M26-03: forward canvas selection to chat controller's context
+        if (this.controllers.chat) {
+          this.controllers.chat.handleMessage({
+            type: 'contextUpdate',
+            selectedClasses: [msg.className],
+          });
+        }
+        return;
     }
 
     // Route to active mode controller
@@ -261,8 +277,8 @@ export class AppShell {
     if (!this.controllers[mode]) {
       const p = this.provider!;
       const entries = this.allEntries;
-      if (mode === 'explore') { this.controllers.explore = new ExploreController(p, entries); }
-      if (mode === 'trace')   { this.controllers.trace   = new TraceController(p, entries, this.reverseDeps); }
+      if (mode === 'explore') { this.controllers.explore = new ExploreController(p, entries, this.allModules, this.moduleEdges, this.entryPoints); }
+      if (mode === 'trace')   { this.controllers.trace   = new TraceController(p, entries, this.reverseDeps, this.allModules); }
       if (mode === 'chat')    { this.controllers.chat    = new ChatController(p, entries, (line: string) => this._log(line)); }
     }
 
@@ -302,8 +318,8 @@ export class AppShell {
 
     // Rebuild controllers with fresh data
     if (this.provider) {
-      this.controllers.explore = new ExploreController(this.provider, entries);
-      this.controllers.trace   = new TraceController(this.provider, entries, this.reverseDeps);
+      this.controllers.explore = new ExploreController(this.provider, entries, this.allModules, this.moduleEdges, this.entryPoints);
+      this.controllers.trace   = new TraceController(this.provider, entries, this.reverseDeps, this.allModules);
       this.controllers.chat    = new ChatController(this.provider, entries, (line: string) => this._log(line));
       this.controllers[this.activeMode]!.activate(panel);
     }
@@ -313,6 +329,29 @@ export class AppShell {
 
     this._post({ type: 'indexLoaded', entries: send, totalCount: entries.length });
     this._post({ type: 'layoutDirection', direction: cfg<'TB' | 'LR' | 'BT' | 'RL'>('layoutDirection') ?? 'TB' });
+
+    // Send module data if v2 index
+    if (this.allModules.length > 0) {
+      this._post({
+        type: 'modulesLoaded',
+        modules: this.allModules,
+        moduleEdges: this.moduleEdges,
+        entryPoints: this.entryPoints,
+        projectName: this.projectName,
+      });
+
+      // Exploration path (M24-05)
+      const expPath = generateExplorationPath(this.allModules, this.moduleEdges, this.entryPoints);
+      if (expPath) {
+        this._post({ type: 'explorationPath', path: expPath });
+      }
+
+      // Key flows (M25-03)
+      const flows = discoverKeyFlows(entries, this.entryPoints, this.allModules);
+      if (flows.length > 0) {
+        this._post({ type: 'keyFlows', flows });
+      }
+    }
 
     if (entries.length === 0) {
       const searchedPath = root ? this._indexPath(root) : '(no workspace folder open)';
@@ -389,8 +428,23 @@ export class AppShell {
       if (!fs.existsSync(indexPath)) { return []; }
       const raw = fs.readFileSync(indexPath, 'utf-8');
       const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) { throw new Error('blueprint_index.json must be a JSON array'); }
-      return parsed as ClassEntry[];
+      // V2 format: object with { version, classes, modules, ... }
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && parsed.version === 2) {
+        this.allModules = parsed.modules ?? [];
+        this.moduleEdges = parsed.moduleEdges ?? [];
+        this.entryPoints = parsed.entryPoints ?? [];
+        this.projectName = parsed.projectName ?? '';
+        return (parsed.classes ?? []) as ClassEntry[];
+      }
+      // V1 format: bare array
+      if (Array.isArray(parsed)) {
+        this.allModules = [];
+        this.moduleEdges = [];
+        this.entryPoints = [];
+        this.projectName = '';
+        return parsed as ClassEntry[];
+      }
+      throw new Error('blueprint_index.json must be a JSON array or v2 object');
     } catch (err) {
       vscode.window.showErrorMessage(`Clang Blueprint: Failed to load index: ${err}`);
       return [];

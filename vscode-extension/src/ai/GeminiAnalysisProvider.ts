@@ -13,6 +13,10 @@ import type {
   ChatMessage,
   AnalysisSummary,
   RelevanceMatch,
+  ModuleEntry,
+  ModuleEdge,
+  EntryPoint,
+  ModuleSummary,
 } from '../shared/types';
 import { LocalAnalysisProvider } from './LocalAnalysisProvider';
 
@@ -271,5 +275,128 @@ export class GeminiAnalysisProvider implements IAnalysisProvider {
       }
     }
     throw lastError ?? new Error('Gemini request failed: no compatible model available.');
+  }
+
+  // -------------------------------------------------------------------------
+  // summarizeModule (P23)
+  // -------------------------------------------------------------------------
+
+  async summarizeModule(
+    module: ModuleEntry,
+    classes: ClassEntry[],
+    neighborModules: ModuleEntry[],
+  ): Promise<ModuleSummary> {
+    const classSet = new Set(module.classNames);
+    const modClasses = classes.filter(c => classSet.has(c.className));
+    const classDigests = modClasses.slice(0, 15).map(_classDigest).join('\n\n');
+    const neighborList = neighborModules.map(m => `${m.name} (${m.classNames.length} classes)`).join(', ');
+
+    const prompt = [
+      'Analyse this C++ module and return a JSON object with exactly these fields:',
+      '  "intent": one sentence describing what this module does',
+      '  "keyClasses": array of the 3-5 most important class names in this module',
+      '  "interactions": array of 2-4 sentences describing how this module interacts with neighbors',
+      '  "entryPath": the class name that is the best starting point for understanding this module',
+      '  "notes": optional string with extra observations',
+      '',
+      `=== MODULE: ${module.name} (${module.classNames.length} classes) ===`,
+      classDigests,
+      '',
+      ...(neighborList ? [`Neighbor modules: ${neighborList}`, ''] : []),
+      'Return ONLY valid JSON. No markdown fences.',
+    ].join('\n');
+
+    try {
+      const text = await this._generateWithFallback(prompt, FAST_MODEL_CANDIDATES);
+      const parsed = JSON.parse(text) as Partial<ModuleSummary>;
+      return {
+        intent: parsed.intent ?? module.summarySeed,
+        keyClasses: Array.isArray(parsed.keyClasses) ? parsed.keyClasses : [],
+        interactions: Array.isArray(parsed.interactions) ? parsed.interactions : [],
+        entryPath: parsed.entryPath,
+        notes: parsed.notes,
+      };
+    } catch {
+      return this._local.summarizeModule(module, classes, neighborModules);
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // summarizeProject (P23)
+  // -------------------------------------------------------------------------
+
+  async summarizeProject(
+    modules: ModuleEntry[],
+    entryPoints: EntryPoint[],
+  ): Promise<string> {
+    const moduleList = modules
+      .slice(0, 15)
+      .map(m => `${m.name} (${m.classNames.length} classes): ${m.summarySeed.slice(0, 80)}`)
+      .join('\n');
+    const eps = entryPoints
+      .filter(e => e.kind === 'main' || e.kind === 'hub')
+      .slice(0, 5)
+      .map(e => `${e.className} (${e.kind})`)
+      .join(', ');
+
+    const prompt = [
+      'Summarize this C++ project in 1-3 sentences. Focus on what it does, not how.',
+      '',
+      `Modules:\n${moduleList}`,
+      ...(eps ? [`\nKey entry points: ${eps}`] : []),
+      '\nReturn ONLY the summary text, no JSON or markdown.',
+    ].join('\n');
+
+    try {
+      const text = await this._generateWithFallback(prompt, FAST_MODEL_CANDIDATES);
+      return text.trim();
+    } catch {
+      return this._local.summarizeProject(modules, entryPoints);
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // explainArchitecture (P24-04)
+  // -------------------------------------------------------------------------
+
+  async explainArchitecture(
+    modules: ModuleEntry[],
+    moduleEdges: ModuleEdge[],
+    focusModule?: string,
+  ): Promise<string> {
+    const sorted = [...modules].sort((a, b) => b.classNames.length - a.classNames.length);
+    const moduleList = sorted
+      .slice(0, 12)
+      .map(m => `${m.name} (${m.classNames.length} classes): ${m.summarySeed.slice(0, 80)}`)
+      .join('\n');
+    const edgeList = [...moduleEdges]
+      .sort((a, b) => b.weight - a.weight)
+      .slice(0, 15)
+      .map(e => `${e.source} → ${e.target} (${e.weight} connections, ${e.depTypes?.join('/') ?? 'mixed'})`)
+      .join('\n');
+
+    const focusPart = focusModule
+      ? `\nFocus your explanation on module "${focusModule}" and its relationships.`
+      : '';
+
+    const prompt = [
+      'Explain the architecture of this C++ project in 2-4 paragraphs.',
+      'Describe why the modules are structured this way, what the key relationships are,',
+      'and what design patterns or architectural decisions are evident.',
+      focusPart,
+      '',
+      `Modules:\n${moduleList}`,
+      '',
+      `Inter-module dependencies:\n${edgeList}`,
+      '',
+      'Return ONLY the explanation text, no JSON or markdown fences.',
+    ].join('\n');
+
+    try {
+      const text = await this._generateWithFallback(prompt, FAST_MODEL_CANDIDATES);
+      return text.trim();
+    } catch {
+      return this._local.explainArchitecture(modules, moduleEdges, focusModule);
+    }
   }
 }

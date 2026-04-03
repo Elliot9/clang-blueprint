@@ -600,6 +600,177 @@
     .mode-btn:hover { color: #d4d4d4; border-color: #555; }
     .mode-btn.mode-active { border-color: #007acc; color: #4fc3f7; background: rgba(0,122,204,0.15); }
 
+    /* ── Module Overview (P22) ── */
+    #module-overview {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      overflow: auto;
+      padding: 24px;
+      display: none;
+    }
+    #module-overview.visible { display: block; }
+    .module-overview-header {
+      color: #9cdcfe;
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .module-overview-summary {
+      color: #888;
+      font-size: 12px;
+      margin-bottom: 20px;
+      line-height: 1.5;
+    }
+    .module-overview-guide {
+      color: #4ec9b0;
+      font-size: 11px;
+      cursor: pointer;
+      margin-bottom: 16px;
+      padding: 6px 10px;
+      background: rgba(78,201,176,0.1);
+      border: 1px solid rgba(78,201,176,0.3);
+      border-radius: 4px;
+      display: none;
+    }
+    .module-overview-guide:hover { background: rgba(78,201,176,0.2); }
+    .module-overview-guide.visible { display: block; }
+    .module-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+    .module-card {
+      background: #252526;
+      border: 1.5px solid #3e3e3e;
+      border-radius: 6px;
+      padding: 12px 14px;
+      min-width: 200px;
+      max-width: 300px;
+      flex: 1 1 220px;
+      cursor: pointer;
+      transition: border-color 0.15s, box-shadow 0.15s, transform 0.1s;
+    }
+    .module-card:hover { border-color: #007acc; transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.4); }
+    .module-card.entry-highlight { border-color: #e8a000; }
+    .module-card.selected { border-color: #007acc; box-shadow: 0 0 0 2px rgba(0,122,204,0.3); }
+    .module-card-name {
+      font-weight: 600;
+      font-size: 13px;
+      color: #4ec9b0;
+      margin-bottom: 4px;
+    }
+    .module-card-stats {
+      font-size: 10px;
+      color: #888;
+      margin-bottom: 6px;
+    }
+    .module-card-seed {
+      font-size: 11px;
+      color: #aaa;
+      line-height: 1.4;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .module-card-badge {
+      display: inline-block;
+      font-size: 9px;
+      padding: 1px 5px;
+      border-radius: 3px;
+      margin-right: 4px;
+      margin-top: 6px;
+    }
+    .module-card-badge.entry { background: rgba(232,160,0,0.2); color: #e8a000; }
+    .module-card-badge.hub { background: rgba(78,201,176,0.2); color: #4ec9b0; }
+    .module-card-deps {
+      margin-top: 8px;
+      font-size: 10px;
+      color: #666;
+    }
+    .module-breadcrumb {
+      font-size: 11px;
+      color: #888;
+      margin-bottom: 12px;
+      display: none;
+    }
+    .module-breadcrumb.visible { display: block; }
+    .module-breadcrumb a {
+      color: #4fc3f7;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .module-breadcrumb a:hover { text-decoration: underline; }
+
+    /* ── Suggestion Chips (P24) ── */
+    #suggestion-bar {
+      position: fixed;
+      bottom: 4px;
+      left: 250px;
+      right: 300px;
+      display: flex;
+      gap: 8px;
+      padding: 4px 8px;
+      z-index: 30;
+      pointer-events: none;
+    }
+    .suggestion-chip {
+      pointer-events: all;
+      background: #2d2d2d;
+      border: 1px solid #3e3e3e;
+      border-radius: 12px;
+      padding: 4px 12px;
+      font-size: 11px;
+      color: #9cdcfe;
+      cursor: pointer;
+      white-space: nowrap;
+      max-width: 280px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .suggestion-chip:hover { background: #094771; border-color: #007acc; }
+    .suggestion-chip .chip-dismiss {
+      margin-left: 6px;
+      color: #666;
+      cursor: pointer;
+      font-size: 10px;
+    }
+    .suggestion-chip .chip-dismiss:hover { color: #ccc; }
+
+    /* ── Exploration Path (M24-05) ── */
+    .exploration-path {
+      margin: 16px 0 8px;
+      padding: 10px 14px;
+      background: rgba(0,122,204,0.08);
+      border: 1px solid rgba(0,122,204,0.2);
+      border-radius: 6px;
+    }
+    .exploration-path-steps { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+    .path-step {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 3px 8px; border-radius: 4px;
+      background: #1e1e1e; border: 1px solid #3c3c3c;
+      color: #9cdcfe; font-size: 11px; cursor: pointer;
+    }
+    .path-step:hover { border-color: #007acc; background: #094771; }
+    .path-step-num {
+      display: inline-block; width: 16px; height: 16px; line-height: 16px;
+      text-align: center; border-radius: 50%; background: #007acc; color: #fff;
+      font-size: 9px; font-weight: 700; margin-right: 2px;
+    }
+    .path-arrow { color: #555; font-size: 14px; margin: 0 2px; }
+
+    /* ── Key Flows (M25-03) ── */
+    .key-flows-section { margin: 12px 0 8px; }
+    .key-flow-item {
+      padding: 5px 8px; border-radius: 4px; cursor: pointer;
+      font-size: 11px; margin-bottom: 2px;
+    }
+    .key-flow-item:hover { background: rgba(78,201,176,0.1); }
+    .module-card.flow-highlight { border-color: #4ec9b0 !important; box-shadow: 0 0 8px rgba(78,201,176,0.4); }
+    .module-card.flow-dim { opacity: 0.35; }
+
     /* ── Left Panel (populated by F1/G1/H2) ── */
     #left-panel {
       position: fixed;
@@ -941,6 +1112,7 @@
 <!-- Canvas -->
 <div id="canvas-container">
   <div id="rubber-band"></div>
+  <div id="module-overview"></div>
   <div id="canvas">
     <svg id="edges-svg"></svg>
   </div>
@@ -959,6 +1131,9 @@
   <canvas id="minimap-canvas"></canvas>
   <div id="minimap-viewport"></div>
 </div>
+
+<!-- Suggestion Chips (P24) -->
+<div id="suggestion-bar"></div>
 
 <!-- Context menu -->
 <div id="ctx-menu">
@@ -1032,6 +1207,14 @@ const nodePositions = {};   // className → {x, y}
 const nodeWidths = {};      // className → width (px number)
 // UI-03: collapsed state
 const collapsedNodes = new Set();
+
+// Module overview state (P22)
+let moduleData = null;   // { modules, moduleEdges, entryPoints, projectName }
+let moduleViewActive = false;
+let selectedModule = null;
+let drilledModule = null; // currently drilled-down module name, or null
+let explorationPathData = null; // { steps: [{ moduleName, className, reason }] }
+let keyFlowsData = [];          // Flow[] from discoverKeyFlows
 
 // Pan/zoom (canvas level)
 let panX = 0, panY = 0, scale = 1;
@@ -1125,6 +1308,15 @@ function switchMode(mode) {
     const tp = document.getElementById('trace-panel');
     tp.classList.remove('visible');
     // traceMode cleanup is handled by exitTraceMode() called elsewhere
+  }
+
+  // Module overview: show when entering explore mode with module data, hide otherwise
+  if (mode === 'explore' && moduleData && moduleData.modules.length > 0 && !drilledModule) {
+    renderModuleOverview();
+  } else {
+    document.getElementById('module-overview').classList.remove('visible');
+    document.getElementById('canvas').style.display = '';
+    moduleViewActive = false;
   }
 
   _renderSidePanels(mode);
@@ -1288,7 +1480,13 @@ function _buildTraceLeft(container) {
       <label>Paste error log / stack trace</label>
       <textarea class="error-log-area" id="trace-err-log" rows="4" placeholder="Paste error output here…"></textarea>
     </div>
-    <button class="trace-btn" id="trace-loc-btn">Locate →</button>`;
+    <button class="trace-btn" id="trace-loc-btn">Locate →</button>
+    <div class="panel-section-title">Flow Query (M25-04)</div>
+    <div class="trace-ctrl">
+      <label>Describe the flow you're looking for</label>
+      <input id="trace-flow-inp" type="text" placeholder="e.g. how does a write request flow?" />
+    </div>
+    <button class="trace-btn" id="trace-flow-btn">Find Flows →</button>`;
 
   document.getElementById('trace-cls-inp').addEventListener('input', function() {
     _populateMethodSelect(this.value);
@@ -1307,6 +1505,16 @@ function _buildTraceLeft(container) {
   document.getElementById('trace-loc-btn').addEventListener('click', () => {
     const log = document.getElementById('trace-err-log').value.trim();
     if (log) vscode.postMessage({ type: 'locateAnchor', errorLog: log });
+  });
+  document.getElementById('trace-flow-btn').addEventListener('click', () => {
+    const q = document.getElementById('trace-flow-inp').value.trim();
+    if (q) vscode.postMessage({ type: 'flowQuery', query: q });
+  });
+  document.getElementById('trace-flow-inp').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const q = e.target.value.trim();
+      if (q) vscode.postMessage({ type: 'flowQuery', query: q });
+    }
   });
 }
 
@@ -1630,11 +1838,27 @@ function _wireRenderedChatMsg(div) {
       });
     };
   });
-  // Class name links → center on canvas
+  // Class name links → center on canvas (M26-02: cross-mode navigation)
   div.querySelectorAll('.chat-classlink').forEach(span => {
     span.onclick = () => {
       const cn = span.dataset.cn;
-      if (nodes[cn]) { centerOn(cn); selectNode(cn); }
+      if (nodes[cn]) {
+        centerOn(cn);
+        selectNode(cn);
+      } else {
+        // Class not on canvas — switch to explore mode and request it
+        switchMode('explore');
+        vscode.postMessage({ type: 'modeSwitch', mode: 'explore' });
+        // If in module overview, try to drill down to the right module
+        if (moduleData) {
+          const mod = moduleData.modules.find(m => m.classNames.includes(cn));
+          if (mod) {
+            drillDownToModule(mod.name);
+            setTimeout(() => selectNode(cn), 300);
+            return;
+          }
+        }
+      }
     };
   });
 }
@@ -1669,6 +1893,365 @@ _renderSidePanels(activeMode);
 const exploreHistory = [];
 
 // ============================================================
+//  Suggestion Chips (P24)
+// ============================================================
+const dismissedSuggestions = new Set();
+
+function updateSuggestionChips() {
+  const bar = document.getElementById('suggestion-bar');
+  if (!bar || activeMode !== 'explore' || moduleViewActive) {
+    if (bar) bar.innerHTML = '';
+    return;
+  }
+
+  const visibleNames = new Set(Object.keys(nodes));
+  const expandedNames = new Set(exploreHistory.flatMap(h => [h.triggerClass]));
+
+  // Strategy 1: Hub — visible but not expanded, high reverse-dep count
+  // (we estimate in-degree from visible edges)
+  const inDeg = {};
+  for (const e of edges) {
+    inDeg[e.to] = (inDeg[e.to] || 0) + 1;
+  }
+
+  const suggestions = [];
+  const seen = new Set();
+
+  // Hubs
+  for (const cn of Object.keys(nodes)) {
+    if (expandedNames.has(cn) || dismissedSuggestions.has(cn) || seen.has(cn)) continue;
+    const deg = inDeg[cn] || 0;
+    if (deg >= 2) {
+      suggestions.push({ target: cn, reason: `${cn} — ${deg} dependents, unexplored`, kind: 'hub' });
+      seen.add(cn);
+    }
+  }
+
+  // Boundary: deps not on canvas
+  const depCount = {};
+  for (const cn of Object.keys(nodes)) {
+    const entry = nodes[cn]?.entry;
+    if (!entry) continue;
+    for (const d of (entry.dependencies || [])) {
+      if (!visibleNames.has(d.target) && !seen.has(d.target) && !dismissedSuggestions.has(d.target)) {
+        depCount[d.target] = (depCount[d.target] || 0) + 1;
+      }
+    }
+  }
+  const offCanvas = Object.entries(depCount).sort((a, b) => b[1] - a[1]);
+  for (const [cn, count] of offCanvas.slice(0, 2)) {
+    if (seen.has(cn)) continue;
+    const target = allEntries.find(e => e.className === cn);
+    if (!target) continue;
+    suggestions.push({ target: cn, reason: `${cn} — ${count} refs but not shown`, kind: 'unexplored' });
+    seen.add(cn);
+  }
+
+  // Render chips (max 3)
+  const top = suggestions.slice(0, 3);
+  if (top.length === 0) { bar.innerHTML = ''; return; }
+
+  bar.innerHTML = top.map((s, i) => {
+    const icon = s.kind === 'hub' ? '⭐' : s.kind === 'boundary' ? '🔗' : '💡';
+    return `<div class="suggestion-chip" data-idx="${i}" data-target="${s.target}" title="${s.reason}">${icon} ${s.reason}<span class="chip-dismiss" data-target="${s.target}">✕</span></div>`;
+  }).join('');
+
+  bar.querySelectorAll('.suggestion-chip').forEach(chip => {
+    chip.addEventListener('click', (e) => {
+      if (e.target.classList.contains('chip-dismiss')) return;
+      const cn = chip.dataset.target;
+      const entry = allEntries.find(ee => ee.className === cn);
+      if (entry && !nodes[cn]) {
+        // Add to canvas then select
+        const existingNames = new Set(Object.keys(nodes));
+        // Temporarily add to allEntries view and re-render to include it
+        selectNode(cn);
+      } else if (nodes[cn]) {
+        selectNode(cn);
+      }
+    });
+  });
+
+  bar.querySelectorAll('.chip-dismiss').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      dismissedSuggestions.add(btn.dataset.target);
+      updateSuggestionChips();
+    });
+  });
+}
+
+// ============================================================
+//  Module Overview (P22)
+// ============================================================
+
+function renderModuleOverview() {
+  const el = document.getElementById('module-overview');
+  if (!moduleData || !moduleData.modules || moduleData.modules.length === 0) {
+    el.classList.remove('visible');
+    moduleViewActive = false;
+    return;
+  }
+
+  moduleViewActive = true;
+  drilledModule = null;
+  el.classList.add('visible');
+  document.getElementById('canvas').style.display = 'none';
+
+  const { modules, moduleEdges, entryPoints, projectName } = moduleData;
+
+  // Build entry point lookup: className → EntryPoint
+  const epByClass = {};
+  (entryPoints || []).forEach(ep => { epByClass[ep.className] = ep; });
+  // Which modules have entry points?
+  const epModules = new Set();
+  (entryPoints || []).filter(ep => ep.kind === 'main' || ep.kind === 'hub').forEach(ep => {
+    const mod = modules.find(m => m.classNames.includes(ep.className));
+    if (mod) epModules.add(mod.name);
+  });
+
+  // Find primary entry point for guide
+  const mainEp = (entryPoints || []).find(ep => ep.kind === 'main');
+  const mainMod = mainEp ? modules.find(m => m.classNames.includes(mainEp.className)) : null;
+
+  let html = '';
+
+  // Breadcrumb (hidden on overview root)
+  html += '<div class="module-breadcrumb" id="module-breadcrumb"></div>';
+
+  // Project header
+  html += `<div class="module-overview-header">${projectName || 'Project'} — Module Overview</div>`;
+  html += `<div class="module-overview-summary" id="module-project-summary">${modules.length} modules, ${modules.reduce((s,m) => s + m.classNames.length, 0)} classes</div>`;
+
+  // Entry point guide
+  if (mainMod) {
+    html += `<div class="module-overview-guide visible" id="module-guide" data-module="${mainMod.name}" data-class="${mainEp.className}">` +
+      `Start exploring from <strong>${mainEp.className}</strong> in module <strong>${mainMod.name}</strong> — main entry point</div>`;
+  }
+
+  // Module grid (sorted by class count descending)
+  html += '<div class="module-grid">';
+  const sorted = [...modules].sort((a, b) => b.classNames.length - a.classNames.length);
+  for (const mod of sorted) {
+    const isEntry = epModules.has(mod.name);
+    const entryClass = isEntry ? 'entry-highlight' : '';
+    const extDeps = (mod.externalDeps || []).slice(0, 3).map(d => `→ ${d.target}`).join(', ');
+
+    // Badges
+    let badges = '';
+    if (isEntry) badges += '<span class="module-card-badge entry">entry</span>';
+    const hubClasses = (entryPoints || []).filter(ep => ep.kind === 'hub' && mod.classNames.includes(ep.className));
+    if (hubClasses.length) badges += '<span class="module-card-badge hub">hub</span>';
+
+    html += `<div class="module-card ${entryClass}" data-module="${mod.name}">`;
+    html += `<div class="module-card-name">${mod.name}</div>`;
+    html += `<div class="module-card-stats">${mod.classNames.length} classes · ${mod.internalEdgeCount} internal deps</div>`;
+    html += `<div class="module-card-seed">${mod.summarySeed || ''}</div>`;
+    if (badges) html += `<div>${badges}</div>`;
+    if (extDeps) html += `<div class="module-card-deps">${extDeps}</div>`;
+    html += '</div>';
+  }
+  html += '</div>';
+
+  // Exploration Path (M24-05)
+  if (explorationPathData && explorationPathData.steps && explorationPathData.steps.length >= 2) {
+    html += '<div class="exploration-path" id="exploration-path">';
+    html += '<div style="color:#888;font-size:10px;text-transform:uppercase;margin-bottom:6px;">Suggested Exploration Path</div>';
+    html += '<div class="exploration-path-steps">';
+    explorationPathData.steps.forEach((step, i) => {
+      if (i > 0) html += '<span class="path-arrow">→</span>';
+      html += `<span class="path-step" data-module="${step.moduleName}" data-class="${step.className}" title="${step.reason}">` +
+        `<span class="path-step-num">${i + 1}</span>${step.moduleName}</span>`;
+    });
+    html += '</div></div>';
+  }
+
+  // Key Flows section (M25-03)
+  if (keyFlowsData && keyFlowsData.length > 0) {
+    html += '<div class="key-flows-section" id="key-flows-section">';
+    html += '<div style="color:#888;font-size:10px;text-transform:uppercase;margin-bottom:6px;">Key Flows</div>';
+    keyFlowsData.slice(0, 8).forEach((flow, i) => {
+      const moduleList = flow.crossedModules.join(' → ');
+      html += `<div class="key-flow-item" data-flow-idx="${i}" title="${flow.name}">` +
+        `<span style="color:#4ec9b0;">${flow.name}</span>` +
+        `<span style="color:#666;font-size:10px;margin-left:6px;">(${flow.crossedModules.length} modules: ${moduleList})</span></div>`;
+    });
+    html += '</div>';
+  }
+
+  el.innerHTML = html;
+
+  // Wire click events
+  el.querySelectorAll('.module-card').forEach(card => {
+    card.addEventListener('click', () => {
+      const modName = card.dataset.module;
+      // First click → show summary in right panel; second click → drill down
+      if (selectedModule === modName) {
+        drillDownToModule(modName);
+      } else {
+        selectedModule = modName;
+        el.querySelectorAll('.module-card').forEach(c => c.classList.remove('selected'));
+        card.classList.add('selected');
+        vscode.postMessage({ type: 'requestModuleSummary', moduleName: modName });
+      }
+    });
+    card.addEventListener('dblclick', () => {
+      drillDownToModule(card.dataset.module);
+    });
+  });
+
+  // Wire guide click
+  const guideEl = document.getElementById('module-guide');
+  if (guideEl) {
+    guideEl.addEventListener('click', () => {
+      drillDownToModule(guideEl.dataset.module);
+    });
+  }
+
+  // Wire exploration path step clicks (M24-05)
+  el.querySelectorAll('.path-step').forEach(step => {
+    step.addEventListener('click', () => {
+      drillDownToModule(step.dataset.module);
+      setTimeout(() => selectNode(step.dataset.class), 300);
+    });
+  });
+
+  // Wire key flow hover + click (M25-03)
+  el.querySelectorAll('.key-flow-item').forEach(item => {
+    const idx = parseInt(item.dataset.flowIdx, 10);
+    const flow = keyFlowsData[idx];
+    if (!flow) return;
+    const flowModules = new Set(flow.crossedModules);
+
+    item.addEventListener('mouseenter', () => {
+      el.querySelectorAll('.module-card').forEach(card => {
+        if (flowModules.has(card.dataset.module)) {
+          card.classList.add('flow-highlight');
+        } else {
+          card.classList.add('flow-dim');
+        }
+      });
+    });
+    item.addEventListener('mouseleave', () => {
+      el.querySelectorAll('.module-card').forEach(card => {
+        card.classList.remove('flow-highlight', 'flow-dim');
+      });
+    });
+    item.addEventListener('click', () => {
+      // Drill down to first module in flow and highlight flow classes
+      const firstMod = flow.crossedModules[0];
+      if (firstMod) drillDownToModule(firstMod);
+    });
+  });
+
+  // Request project summary from AI
+  vscode.postMessage({ type: 'requestModuleSummary', moduleName: sorted[0]?.name });
+}
+
+function drillDownToModule(moduleName) {
+  drilledModule = moduleName;
+  moduleViewActive = false;
+  selectedModule = null;
+
+  const el = document.getElementById('module-overview');
+  el.classList.remove('visible');
+  document.getElementById('canvas').style.display = '';
+
+  // Show breadcrumb
+  const bc = document.getElementById('module-breadcrumb');
+  if (bc) {
+    bc.classList.add('visible');
+    bc.innerHTML = `<a id="bc-overview">Overview</a> › <strong>${moduleName}</strong>`;
+    document.getElementById('bc-overview').addEventListener('click', () => {
+      returnToModuleOverview();
+    });
+  }
+
+  // Tell extension to send us the module's classes
+  vscode.postMessage({ type: 'moduleDrillDown', moduleName });
+}
+
+function returnToModuleOverview() {
+  drilledModule = null;
+  const bc = document.getElementById('module-breadcrumb');
+  if (bc) bc.classList.remove('visible');
+  vscode.postMessage({ type: 'moduleOverview' });
+  renderModuleOverview();
+}
+
+function showModuleSummary(moduleName, summary) {
+  // Display in right panel
+  const rp = document.getElementById('right-panel');
+  if (!rp) return;
+  rp.classList.add('open');
+  rp.innerHTML = `<div class="panel-header">Module: ${moduleName}</div>` +
+    `<div style="padding:10px 12px;">` +
+    `<div style="color:#4ec9b0;font-weight:600;margin-bottom:6px;">${summary.intent || ''}</div>` +
+    (summary.keyClasses?.length ? `<div style="margin-bottom:8px;"><span style="color:#888;font-size:10px;">KEY CLASSES</span><br>` +
+      summary.keyClasses.map(c => `<span style="color:#9cdcfe;cursor:pointer;" class="mod-key-class" data-class="${c}">${c}</span>`).join(', ') + '</div>' : '') +
+    (summary.interactions?.length ? `<div style="margin-bottom:8px;"><span style="color:#888;font-size:10px;">INTERACTIONS</span>` +
+      summary.interactions.map(i => `<div style="color:#aaa;font-size:11px;margin-top:3px;">• ${i}</div>`).join('') + '</div>' : '') +
+    (summary.entryPath ? `<div style="margin-bottom:8px;"><span style="color:#888;font-size:10px;">START FROM</span><br>` +
+      `<span style="color:#4fc3f7;cursor:pointer;" class="mod-key-class" data-class="${summary.entryPath}">${summary.entryPath}</span></div>` : '') +
+    (summary.notes ? `<div style="color:#666;font-size:10px;margin-top:8px;">${summary.notes}</div>` : '') +
+    '</div>';
+
+  // Wire key class clicks → drill down
+  rp.querySelectorAll('.mod-key-class').forEach(el => {
+    el.addEventListener('click', () => {
+      const cn = el.dataset.class;
+      // Find which module this class belongs to
+      if (moduleData) {
+        const mod = moduleData.modules.find(m => m.classNames.includes(cn));
+        if (mod) {
+          drillDownToModule(mod.name);
+          // After drill down, select the specific class (delayed to let render finish)
+          setTimeout(() => selectNode(cn), 300);
+        }
+      }
+    });
+  });
+}
+
+// ============================================================
+//  Flow Result Display (M25-04)
+// ============================================================
+function _showFlowResult(query, flows) {
+  const rp = document.getElementById('right-panel');
+  if (!rp) return;
+  rp.classList.add('open');
+
+  if (!flows.length) {
+    rp.innerHTML = `<div class="panel-header">Flow Query</div>` +
+      `<div style="padding:12px;color:#888;">No flows found for "${query}"</div>`;
+    return;
+  }
+
+  let html = `<div class="panel-header">Flows: ${query}</div><div style="padding:10px 12px;">`;
+  flows.forEach((flow, i) => {
+    html += `<div style="margin-bottom:12px;">`;
+    html += `<div style="color:#4ec9b0;font-weight:600;font-size:11px;">${i + 1}. ${flow.name}</div>`;
+    html += `<div style="color:#666;font-size:10px;margin-bottom:4px;">${flow.crossedModules.join(' → ')}</div>`;
+    flow.steps.forEach((step, j) => {
+      const color = step.action === 'write' ? '#f78166' : step.action === 'read' ? '#7ee787' : '#9cdcfe';
+      html += `<span style="color:${color};font-size:10px;">${step.className}::${step.method}</span>`;
+      if (j < flow.steps.length - 1) html += `<span style="color:#555;font-size:10px;"> → </span>`;
+    });
+    html += `</div>`;
+  });
+  html += '</div>';
+  rp.innerHTML = html;
+}
+
+// ============================================================
+//  Canvas ↔ Chat Sync (M26-03)
+// ============================================================
+function _onCanvasNodeSelected(className) {
+  // Send to extension for chat context update
+  vscode.postMessage({ type: 'canvasSelect', className });
+}
+
+// ============================================================
 //  VS Code message handling
 // ============================================================
 window.addEventListener('message', ev => {
@@ -1678,8 +2261,46 @@ window.addEventListener('message', ev => {
     case 'loadEntries':   // legacy compatibility
       allEntries = msg.entries || [];
       totalCount = msg.totalCount || allEntries.length;
+      // If we're in drill-down view, show class canvas
+      if (drilledModule) {
+        document.getElementById('module-overview').classList.remove('visible');
+        document.getElementById('canvas').style.display = '';
+      }
       renderAll();
       if (activeMode === 'explore') _refreshNamespaceTree();
+      break;
+    case 'modulesLoaded':
+      moduleData = {
+        modules: msg.modules || [],
+        moduleEdges: msg.moduleEdges || [],
+        entryPoints: msg.entryPoints || [],
+        projectName: msg.projectName || '',
+      };
+      // Auto-show module overview if in explore mode and not drilled down
+      if (activeMode === 'explore' && !drilledModule) {
+        renderModuleOverview();
+      }
+      break;
+    case 'moduleSummaryResult':
+      showModuleSummary(msg.moduleName, msg.summary);
+      break;
+    case 'projectSummary': {
+      const sumEl = document.getElementById('module-project-summary');
+      if (sumEl) sumEl.textContent = msg.summary;
+      break;
+    }
+    case 'explorationPath':
+      explorationPathData = msg.path || null;
+      // Re-render module overview if visible to show the path
+      if (moduleViewActive) renderModuleOverview();
+      break;
+    case 'keyFlows':
+      keyFlowsData = msg.flows || [];
+      // Re-render module overview if visible to show flows
+      if (moduleViewActive) renderModuleOverview();
+      break;
+    case 'flowResult':
+      _showFlowResult(msg.query, msg.flows || []);
       break;
     case 'modeChanged':
       if (msg.mode && msg.mode !== activeMode) switchMode(msg.mode);
@@ -2144,6 +2765,7 @@ function _renderAllImpl() {
     updateInfoBar(visible.length, filterRegex ? matched.length : visible.length, totalCount);
     fitView();
     renderMinimap();
+    updateSuggestionChips();
   });
 }
 
@@ -2496,6 +3118,22 @@ function _legacyCreateNodeEl(entry, opts = {}) {
     el.classList.add('resized');
   }
 
+  // M26-01: Rich hover tooltip
+  el.addEventListener('mouseenter', (e) => {
+    const intent = entry.responsibility || entry.className;
+    const depCount = (entry.dependencies || []).length;
+    const bases = (entry.baseClasses || []).join(', ');
+    let html = `<div style="max-width:280px">`;
+    html += `<div style="color:#4ec9b0;font-weight:600;margin-bottom:3px;">${entry.namespace ? entry.namespace + '::' : ''}${entry.className}</div>`;
+    html += `<div style="color:#aaa;font-size:10px;margin-bottom:4px;">${intent}</div>`;
+    if (bases) html += `<div style="color:#c586c0;font-size:10px;">extends ${bases}</div>`;
+    if (depCount) html += `<div style="color:#888;font-size:10px;">${depCount} dependencies</div>`;
+    html += `<div style="color:#555;font-size:9px;margin-top:4px;">Click to explore · Double-click to jump to source</div>`;
+    html += '</div>';
+    showTooltip(e.clientX + 12, e.clientY + 12, '', html);
+  });
+  el.addEventListener('mouseleave', hideTooltip);
+
   return el;
 }
 
@@ -2724,8 +3362,9 @@ function highlightEdgePair(fromName, toName) {
 //  Tooltip
 // ============================================================
 const tooltipEl = document.getElementById('tooltip');
-function showTooltip(x, y, text) {
-  tooltipEl.textContent = text;
+function showTooltip(x, y, text, html) {
+  if (html) { tooltipEl.innerHTML = html; }
+  else { tooltipEl.textContent = text; }
   tooltipEl.style.display = 'block';
   tooltipEl.style.left = x + 'px';
   tooltipEl.style.top  = y + 'px';
@@ -3230,6 +3869,8 @@ function selectNode(className) {
   if (activeMode === 'explore') {
     vscode.postMessage({ type: 'requestSummary', className });
   }
+  // M26-03: sync canvas selection to chat context
+  _onCanvasNodeSelected(className);
 }
 
 function highlightOnly(className, direction) {

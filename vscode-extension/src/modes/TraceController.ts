@@ -12,8 +12,9 @@
 import type * as vscode from 'vscode';
 import type { ModeController } from '../shell/ModeController';
 import type { WebviewToExtension } from '../shared/messages';
-import type { IAnalysisProvider, ClassEntry } from '../shared/types';
+import type { IAnalysisProvider, ClassEntry, ModuleEntry } from '../shared/types';
 import { buildTraceContext, computeImpact } from '../analysis/context';
+import { buildFlow } from '../analysis/flowBuilder';
 
 export class TraceController implements ModeController {
   private panel: vscode.WebviewPanel | undefined;
@@ -23,6 +24,7 @@ export class TraceController implements ModeController {
     private readonly allEntries: ClassEntry[],
     /** reverseDeps from blueprint_graph.json — pass {} if not available */
     private readonly reverseDeps: Record<string, string[]> = {},
+    private readonly modules: ModuleEntry[] = [],
   ) {}
 
   activate(panel: vscode.WebviewPanel): void {
@@ -45,6 +47,9 @@ export class TraceController implements ModeController {
         return true;
       case 'locateAnchor':
         this._handleLocateAnchor(message.errorLog);
+        return true;
+      case 'flowQuery':
+        this._handleFlowQuery(message.query);
         return true;
       default:
         return false;
@@ -95,5 +100,41 @@ export class TraceController implements ModeController {
     if (!this.panel) { return; }
     const classes = await this.provider.locateAnchor(errorLog, this.allEntries);
     this.panel.webview.postMessage({ type: 'anchorResult', classes });
+  }
+
+  private async _handleFlowQuery(query: string): Promise<void> {
+    if (!this.panel) { return; }
+
+    // Build classToModule lookup
+    const classToModule: Record<string, string> = {};
+    for (const m of this.modules) {
+      for (const cn of m.classNames) { classToModule[cn] = m.name; }
+    }
+
+    // Use AI to find relevant classes, then try building flows from their methods
+    const matches = await this.provider.findRelevant(query, this.allEntries);
+    const flows: import('../analysis/flowBuilder').Flow[] = [];
+
+    for (const match of matches.slice(0, 10)) {
+      const entry = match.entry;
+      for (const sig of entry.interfaces.slice(0, 3)) {
+        const nameMatch = sig.match(/\b([a-zA-Z_]\w*)\s*\(/);
+        if (!nameMatch) { continue; }
+        const flow = buildFlow(entry.className, nameMatch[1], this.allEntries, classToModule);
+        if (flow && flow.steps.length >= 2) {
+          flows.push(flow);
+        }
+      }
+      if (flows.length >= 5) { break; }
+    }
+
+    // Sort by step count desc
+    flows.sort((a, b) => b.steps.length - a.steps.length);
+
+    this.panel.webview.postMessage({
+      type: 'flowResult',
+      query,
+      flows: flows.slice(0, 5),
+    });
   }
 }

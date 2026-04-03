@@ -33,7 +33,12 @@ def _save_json(path: str, data: Any) -> None:
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
-    print(f"[blueprint] Wrote {len(data)} entries to {path}")
+    if isinstance(data, list):
+        print(f"[blueprint] Wrote {len(data)} entries to {path}")
+    elif isinstance(data, dict):
+        n_classes = len(data.get("classes", []))
+        n_modules = len(data.get("modules", []))
+        print(f"[blueprint] Wrote v2 index ({n_classes} classes, {n_modules} modules) to {path}")
 
 
 # ---------------------------------------------------------------------------
@@ -96,13 +101,32 @@ def cmd_scan(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
 
-    _save_json(output_path, entries)
-
     # B2: also output blueprint_graph.json (reverseDeps for O(1) impact lookups)
     from scanner.graph_builder import build_graph, write_graph, graph_path_for
     graph = build_graph(entries)
     graph_output = args.graph_output or graph_path_for(output_path)
     write_graph(graph, graph_output)
+
+    # P21: build module layer + entry points → v2 index
+    from scanner.module_grouper import build_modules
+    from scanner.entry_detector import detect_entry_points
+
+    reverse_deps = graph.get("reverseDeps", {})
+    entry_points = detect_entry_points(entries, reverse_deps=reverse_deps)
+    modules, module_edges = build_modules(
+        entries, entry_points=entry_points, reverse_deps=reverse_deps
+    )
+
+    v2_index: dict[str, Any] = {
+        "version": 2,
+        "generatedAt": graph.get("generatedAt", ""),
+        "projectName": os.path.basename(project_root),
+        "modules": modules,
+        "moduleEdges": module_edges,
+        "entryPoints": entry_points,
+        "classes": entries,
+    }
+    _save_json(output_path, v2_index)
 
     return 0
 
@@ -122,7 +146,9 @@ def cmd_diagram(args: argparse.Namespace) -> int:
         print("Run `blueprint scan` first to generate the index.", file=sys.stderr)
         return 1
 
-    entries: list[dict] = _load_json(input_path)
+    raw = _load_json(input_path)
+    # Support both v1 (bare array) and v2 (object with "classes" key)
+    entries: list[dict] = raw if isinstance(raw, list) else raw.get("classes", [])
     diagram_type = args.type
     filter_pattern: Optional[str] = args.filter
     namespace_filter: Optional[str] = args.namespace
