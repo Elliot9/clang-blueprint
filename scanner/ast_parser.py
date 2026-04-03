@@ -612,30 +612,32 @@ class ASTVisitor:
             self._scan_body_for_deps(child, seen_deps, dependencies, raw_name, class_key)
 
     # P9-02: ordered call/field-access sequence from method body
+    # M27-01/02/03/04: expanded to capture CALL_EXPR (free func, static, constructor),
+    #   removed dedup, added lineNumber + annotation fields.
+    _SYSCALL_LIKE = frozenset({"ioctl", "fcntl", "prctl", "mmap", "setsockopt"})
+
     def _scan_method_accesses(
         self,
         method_cursor: Any,
         self_class_name: str,
     ) -> list[dict]:
         """
-        Walk a method body for MEMBER_REF_EXPR to build an ordered sequence of
-        member accesses.
+        Walk a method body to build an ordered sequence of calls and field accesses.
 
-        Two categories are captured:
-        - Own-class field accesses  → targetClass="_self_", kind="field", isWrite=T/F
-        - External project-class accesses → targetClass=<name>, kind=field|call
+        Captures:
+        - MEMBER_REF_EXPR: own-class field, external member call/field
+        - CALL_EXPR: free functions, static methods, constructors (M27-01/02)
 
-        Bug fix: use cursor.get_definition() so that methods defined in a .cpp
-        file (header-only declarations have no body) are correctly walked.
-
-        Returns list of {order, targetClass, member, kind, isWrite} dicts,
-        deduplicated by (targetClass, member) keeping first occurrence.
+        Returns list of {order, targetClass, member, kind, isWrite, lineNumber,
+        isConstructor?, annotation?} dicts, preserving full call order (no dedup).
+        Truncated to 200 steps max per method body.
         """
+        MAX_STEPS = 200
+
         # Resolve to the definition cursor so we get the actual body
         defn = method_cursor.get_definition()
         body_cursor = defn if (defn and defn.location and defn.location.file) else method_cursor
 
-        seen: list[tuple[str, str]] = []
         result: list[dict] = []
 
         # Short (unqualified) name used for self-detection
@@ -649,6 +651,10 @@ class ASTVisitor:
         _UNARY_WRITE_OPS = frozenset({
             CursorKind.UNARY_OPERATOR,  # ++/-- on the member
         })
+
+        # Track CALL_EXPR locations already handled via MEMBER_REF_EXPR
+        # to avoid double-recording `obj.method()` calls
+        member_call_locations: set[tuple[str, int, int]] = set()
 
         def _is_write(c: Any, parent: Any) -> bool:
             """Heuristic: is this MEMBER_REF_EXPR the target of a write?"""
@@ -670,7 +676,46 @@ class ASTVisitor:
             short = cls_name.split("::")[-1]
             return short == self_short or cls_name == self_class_name
 
+        def _get_line(c: Any) -> int:
+            """Extract source line number from cursor."""
+            try:
+                return c.location.line if c.location else 0
+            except Exception:
+                return 0
+
+        def _append(entry: dict) -> None:
+            if len(result) < MAX_STEPS:
+                entry["order"] = len(result) + 1
+                result.append(entry)
+
+        def _get_syscall_annotation(c: Any, fn_name: str) -> str | None:
+            """For ioctl-like calls, extract the command constant (2nd arg)."""
+            if fn_name not in self._SYSCALL_LIKE:
+                return None
+            try:
+                args = list(c.get_children())
+                # First child is the function ref; actual args start after
+                # For CALL_EXPR children: [func_ref, arg0, arg1, ...]
+                if len(args) >= 3:  # func_ref + fd + cmd
+                    cmd_cursor = args[2]
+                    # Walk to find the macro / constant spelling
+                    cmd_name = cmd_cursor.spelling
+                    if not cmd_name:
+                        # Try to get from DECL_REF_EXPR child
+                        for sub in cmd_cursor.get_children():
+                            if sub.kind == CursorKind.DECL_REF_EXPR:
+                                cmd_name = sub.spelling
+                                break
+                    if cmd_name:
+                        return f"{fn_name} @ {cmd_name}"
+            except Exception:
+                pass
+            return None
+
         def _walk(c: Any, parent: Any = None) -> None:
+            if len(result) >= MAX_STEPS:
+                return
+
             if c.kind == CursorKind.MEMBER_REF_EXPR:
                 try:
                     ref = c.referenced
@@ -683,17 +728,14 @@ class ASTVisitor:
                             # Own-class field access (not method calls on self)
                             if ref.kind == CursorKind.FIELD_DECL:
                                 member = ref.spelling or ""
-                                key = ("_self_", member)
-                                if key not in seen:
-                                    seen.append(key)
-                                    is_write = _is_write(c, parent)
-                                    result.append({
-                                        "order":       len(result) + 1,
-                                        "targetClass": "_self_",
-                                        "member":      member,
-                                        "kind":        "field",
-                                        "isWrite":     is_write,
-                                    })
+                                is_write = _is_write(c, parent)
+                                _append({
+                                    "targetClass": "_self_",
+                                    "member":      member,
+                                    "kind":        "field",
+                                    "isWrite":     is_write,
+                                    "lineNumber":  _get_line(c),
+                                })
                         else:
                             # External project class — restrict to project-owned
                             ok = True
@@ -704,25 +746,144 @@ class ASTVisitor:
                                 )
                             if ok:
                                 member = ref.spelling or ""
-                                key = (cls_name, member)
-                                if key not in seen:
-                                    seen.append(key)
-                                    is_field = ref.kind == CursorKind.FIELD_DECL
-                                    kind = "field" if is_field else "call"
-                                    is_write = is_field and _is_write(c, parent)
-                                    result.append({
-                                        "order":       len(result) + 1,
-                                        "targetClass": cls_name,
-                                        "member":      member,
-                                        "kind":        kind,
-                                        "isWrite":     is_write,
-                                    })
+                                is_field = ref.kind == CursorKind.FIELD_DECL
+                                kind = "field" if is_field else "call"
+                                is_write = is_field and _is_write(c, parent)
+                                _append({
+                                    "targetClass": cls_name,
+                                    "member":      member,
+                                    "kind":        kind,
+                                    "isWrite":     is_write,
+                                    "lineNumber":  _get_line(c),
+                                })
+                                # Track this location so CALL_EXPR parent won't re-record
+                                if kind == "call" and parent and parent.kind == CursorKind.CALL_EXPR:
+                                    loc = parent.location
+                                    if loc and loc.file:
+                                        member_call_locations.add(
+                                            (loc.file.name, loc.line, loc.column)
+                                        )
                 except Exception:
                     pass
+
+            elif c.kind == CursorKind.CALL_EXPR:
+                # M27-01/02: capture free functions, static methods, constructors
+                try:
+                    # Skip if this CALL_EXPR was already handled via MEMBER_REF_EXPR
+                    loc = c.location
+                    if loc and loc.file:
+                        loc_key = (loc.file.name, loc.line, loc.column)
+                        if loc_key in member_call_locations:
+                            # Already captured as member call — skip but still walk children
+                            for child in c.get_children():
+                                _walk(child, c)
+                            return
+
+                    # Check if first child is MEMBER_REF_EXPR → already handled above
+                    children_list = list(c.get_children())
+                    if children_list and children_list[0].kind == CursorKind.MEMBER_REF_EXPR:
+                        # This is obj.method() — MEMBER_REF_EXPR handler above covers it
+                        for child in children_list:
+                            _walk(child, c)
+                        return
+
+                    ref = c.referenced
+                    if ref:
+                        fn_name = ref.spelling or c.spelling or ""
+
+                        if ref.kind == CursorKind.CONSTRUCTOR:
+                            # M27-02: constructor call (e.g. Baz b(42), new Baz(42))
+                            sem_parent = ref.semantic_parent
+                            target_cls = sem_parent.spelling if sem_parent else fn_name
+                            if target_cls and not _is_trivial_type(target_cls) and not _is_self(target_cls):
+                                _append({
+                                    "targetClass":   target_cls,
+                                    "member":        target_cls,
+                                    "kind":          "call",
+                                    "isWrite":       False,
+                                    "isConstructor": True,
+                                    "lineNumber":    _get_line(c),
+                                })
+
+                        elif ref.kind == CursorKind.CXX_METHOD:
+                            # Static method call (ClassName::staticMethod())
+                            sem_parent = ref.semantic_parent
+                            target_cls = sem_parent.spelling if sem_parent else ""
+                            if target_cls and not _is_trivial_type(target_cls) and not _is_self(target_cls):
+                                ok = True
+                                if sem_parent and sem_parent.location and sem_parent.location.file:
+                                    ok = _is_definition_in_project(
+                                        os.path.abspath(sem_parent.location.file.name),
+                                        self.project_root,
+                                    )
+                                if ok:
+                                    annotation = _get_syscall_annotation(c, fn_name)
+                                    entry = {
+                                        "targetClass": target_cls,
+                                        "member":      fn_name,
+                                        "kind":        "call",
+                                        "isWrite":     False,
+                                        "lineNumber":  _get_line(c),
+                                    }
+                                    if annotation:
+                                        entry["annotation"] = annotation
+                                    _append(entry)
+
+                        elif ref.kind == CursorKind.FUNCTION_DECL:
+                            # Free function call
+                            if fn_name and not _is_trivial_type(fn_name):
+                                sem_parent = ref.semantic_parent
+                                # Use namespace or filename as synthetic class
+                                ns = ""
+                                if sem_parent:
+                                    if sem_parent.kind == CursorKind.NAMESPACE:
+                                        ns = sem_parent.spelling
+                                    elif sem_parent.kind == CursorKind.TRANSLATION_UNIT:
+                                        try:
+                                            ns = os.path.splitext(
+                                                os.path.basename(sem_parent.spelling)
+                                            )[0]
+                                        except Exception:
+                                            pass
+                                target_cls = ns if ns else "_global_"
+                                # Check project ownership
+                                ok = True
+                                if ref.location and ref.location.file:
+                                    ok = _is_definition_in_project(
+                                        os.path.abspath(ref.location.file.name),
+                                        self.project_root,
+                                    )
+                                if ok:
+                                    annotation = _get_syscall_annotation(c, fn_name)
+                                    entry = {
+                                        "targetClass": target_cls,
+                                        "member":      fn_name,
+                                        "kind":        "call",
+                                        "isWrite":     False,
+                                        "lineNumber":  _get_line(c),
+                                    }
+                                    if annotation:
+                                        entry["annotation"] = annotation
+                                    _append(entry)
+                except Exception:
+                    pass
+
             for child in c.get_children():
                 _walk(child, c)
 
         _walk(body_cursor)
+
+        # Mark truncation if we hit the limit
+        if len(result) >= MAX_STEPS:
+            result.append({
+                "order": MAX_STEPS + 1,
+                "targetClass": "_meta_",
+                "member": "truncated",
+                "kind": "call",
+                "isWrite": False,
+                "lineNumber": 0,
+            })
+
         return result
 
     # P8-05/06/07: index free (non-member) functions

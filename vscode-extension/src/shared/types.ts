@@ -45,7 +45,9 @@ export interface CallStep {
   member: string;
   kind: 'call' | 'field';
   isWrite?: boolean;         // for field access: true = write, false = read
-  lineNumber?: number;
+  isConstructor?: boolean;   // true when step represents a constructor call
+  lineNumber?: number;       // source line number of the call site
+  annotation?: string;       // e.g. "ioctl @ DEVICE_GET_VERSION" for syscall-like calls
 }
 
 /** Full class entry — canonical shape after the scanner. */

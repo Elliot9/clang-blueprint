@@ -378,6 +378,39 @@
     .legend-item { display: flex; align-items: center; gap: 3px; font-size: 9px; color: #888; }
     .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
 
+    /* M27-08: Call tree styles */
+    .call-tree { font-size: 11px; margin-top: 6px; }
+    .call-tree-section-title {
+      font-size: 10px; color: #888; padding: 6px 10px 4px;
+      border-top: 1px solid #2a2a2a; text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .call-tree-node {
+      padding: 2px 0 2px calc(var(--depth) * 16px);
+      cursor: pointer; display: flex; align-items: center; gap: 2px;
+      min-height: 20px; padding-right: 6px;
+    }
+    .call-tree-node:hover { background: rgba(255,255,255,0.04); }
+    .call-tree-toggle { display: inline-block; width: 14px; text-align: center; cursor: pointer; flex-shrink: 0; color: #888; font-size: 10px; }
+    .call-tree-toggle.expanded::before { content: '\25BE'; }
+    .call-tree-toggle.collapsed::before { content: '\25B8'; }
+    .call-tree-toggle.leaf::before { content: '\00B7'; color: #555; }
+    .call-tree-icon { margin-right: 2px; font-size: 9px; flex-shrink: 0; }
+    .call-tree-icon.ct-call { color: #4fc3f7; }
+    .call-tree-icon.ct-read { color: #7ee787; }
+    .call-tree-icon.ct-write { color: #f78166; }
+    .call-tree-icon.ct-construct { color: #d4a0ff; }
+    .call-tree-class { color: #9cdcfe; cursor: pointer; }
+    .call-tree-class:hover { text-decoration: underline; }
+    .call-tree-class.ct-self { color: #4ec9b0; font-style: italic; }
+    .call-tree-sep { color: #555; }
+    .call-tree-method { color: #dcdcaa; }
+    .call-tree-annotation { color: #888; font-size: 10px; margin-left: 6px; }
+    .call-tree-line { color: #555; font-size: 9px; margin-left: 4px; cursor: pointer; }
+    .call-tree-line:hover { color: #aaa; }
+    .call-tree-children { }
+    .call-tree-children.collapsed { display: none; }
+    .trace-empty-msg { padding: 12px 10px; color: #888; font-size: 11px; line-height: 1.5; }
+
     .node-methods {
       padding: 2px 8px 4px;
     }
@@ -2244,11 +2277,238 @@ function _showFlowResult(query, flows) {
 }
 
 // ============================================================
+//  Call Tree Result Handler (M27-11)
+// ============================================================
+let _lastCallTree = null; // store for explain button
+
+function _showCallTreeResult(msg) {
+  // Only show if we're still in trace mode for this method
+  if (!traceMode || traceMode.className !== msg.className) return;
+
+  // Remove any existing call tree section
+  const existing = tracePanelList.querySelector('.call-tree-section');
+  if (existing) existing.remove();
+
+  const tree = msg.tree;
+  if (!tree || (!tree.children || tree.children.length === 0)) return;
+
+  _lastCallTree = { tree, className: msg.className, methodSignature: msg.methodSignature };
+
+  // Create call tree section
+  const section = document.createElement('div');
+  section.className = 'call-tree-section';
+
+  const title = document.createElement('div');
+  title.className = 'call-tree-section-title';
+  title.textContent = 'Call Tree';
+  section.appendChild(title);
+
+  const treeContainer = document.createElement('div');
+  treeContainer.className = 'call-tree';
+  section.appendChild(treeContainer);
+
+  renderCallTree(tree, treeContainer, 2);
+
+  // M27-12: "Explain this path" button
+  const explainBtn = document.createElement('button');
+  explainBtn.className = 'trace-explain-btn';
+  explainBtn.textContent = 'Explain this call path';
+  explainBtn.style.cssText = 'margin: 6px 10px; padding: 4px 10px; font-size: 10px; ' +
+    'background: rgba(79,195,247,0.15); color: #4fc3f7; border: 1px solid rgba(79,195,247,0.3); ' +
+    'border-radius: 4px; cursor: pointer;';
+  explainBtn.addEventListener('click', () => {
+    explainBtn.textContent = 'Analyzing...';
+    explainBtn.disabled = true;
+    // Extract longest root-to-leaf path as CallStep[]
+    const path = _extractLongestPath(tree);
+    vscode.postMessage({
+      type: 'requestCallPathExplain',
+      className: msg.className,
+      methodSignature: msg.methodSignature,
+      path: path,
+    });
+  });
+  section.appendChild(explainBtn);
+
+  // Container for explanation result
+  const explainContainer = document.createElement('div');
+  explainContainer.id = 'call-path-explanation';
+  explainContainer.style.cssText = 'padding: 6px 10px; font-size: 11px; color: #ccc; line-height: 1.5; display: none;';
+  section.appendChild(explainContainer);
+
+  tracePanelList.appendChild(section);
+}
+
+function _extractLongestPath(tree) {
+  // DFS to find the longest root-to-leaf path, return as CallStep-like objects
+  let longest = [];
+  function dfs(node, current) {
+    const step = {
+      targetClass: node.className,
+      member: node.method,
+      kind: node.kind || 'call',
+      isWrite: node.isWrite || false,
+      isConstructor: node.isConstructor || false,
+      lineNumber: node.lineNumber || 0,
+      annotation: node.annotation || '',
+    };
+    current.push(step);
+    if (!node.children || node.children.length === 0) {
+      if (current.length > longest.length) {
+        longest = [...current];
+      }
+    } else {
+      for (const child of node.children) {
+        dfs(child, current);
+      }
+    }
+    current.pop();
+  }
+  if (tree.children) {
+    for (const child of tree.children) {
+      dfs(child, []);
+    }
+  }
+  return longest;
+}
+
+// ============================================================
 //  Canvas ↔ Chat Sync (M26-03)
 // ============================================================
 function _onCanvasNodeSelected(className) {
   // Send to extension for chat context update
   vscode.postMessage({ type: 'canvasSelect', className });
+}
+
+// ============================================================
+//  Call Tree Renderer (M27-09)
+// ============================================================
+function renderCallTree(tree, container, initialExpandDepth) {
+  if (!initialExpandDepth) initialExpandDepth = 1;
+
+  function renderNodeInto(node, depth, parentEl) {
+    const div = document.createElement('div');
+    div.className = 'call-tree-node';
+    div.style.setProperty('--depth', depth);
+
+    // Toggle
+    const toggle = document.createElement('span');
+    toggle.className = 'call-tree-toggle';
+    const hasChildren = node.children && node.children.length > 0;
+    if (hasChildren) {
+      toggle.className += depth < initialExpandDepth ? ' expanded' : ' collapsed';
+    } else {
+      toggle.className += ' leaf';
+    }
+    div.appendChild(toggle);
+
+    // Icon
+    const icon = document.createElement('span');
+    icon.className = 'call-tree-icon';
+    if (node.isConstructor) {
+      icon.className += ' ct-construct';
+      icon.textContent = '\u2605';
+    } else if (node.kind === 'field') {
+      icon.className += node.isWrite ? ' ct-write' : ' ct-read';
+      icon.textContent = node.isWrite ? '\u25C6' : '\u25C7';
+    } else {
+      icon.className += ' ct-call';
+      icon.textContent = '\u25C6';
+    }
+    div.appendChild(icon);
+
+    // Class name
+    const clsSpan = document.createElement('span');
+    clsSpan.className = 'call-tree-class';
+    const displayCls = node.className === '_self_' ? '(self)' : node.className.split('::').pop();
+    if (node.className === '_self_') clsSpan.className += ' ct-self';
+    clsSpan.textContent = displayCls;
+    clsSpan.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (node.className !== '_self_' && node.className !== '_global_' && node.className !== '_meta_') {
+        selectNode(node.className.split('::').pop());
+      }
+    });
+    div.appendChild(clsSpan);
+
+    // Sep + method
+    if (node.method) {
+      const sep = document.createElement('span');
+      sep.className = 'call-tree-sep';
+      sep.textContent = '::';
+      div.appendChild(sep);
+      const methSpan = document.createElement('span');
+      methSpan.className = 'call-tree-method';
+      methSpan.textContent = node.method;
+      div.appendChild(methSpan);
+    }
+
+    // Annotation
+    if (node.annotation) {
+      const ann = document.createElement('span');
+      ann.className = 'call-tree-annotation';
+      ann.textContent = node.annotation;
+      div.appendChild(ann);
+    }
+
+    // Line number
+    if (node.lineNumber && node.lineNumber > 0) {
+      const ln = document.createElement('span');
+      ln.className = 'call-tree-line';
+      ln.textContent = ':' + node.lineNumber;
+      ln.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const entry = allEntries.find(en => {
+          const short = en.className.split('::').pop();
+          return short === node.className || en.className === node.className;
+        });
+        if (entry) {
+          vscode.postMessage({
+            type: 'methodClick',
+            fileLocation: entry.fileLocation,
+            lineNumber: node.lineNumber,
+            className: node.className,
+            methodSignature: node.method,
+          });
+        }
+      });
+      div.appendChild(ln);
+    }
+
+    parentEl.appendChild(div);
+
+    // Children
+    if (hasChildren) {
+      const childContainer = document.createElement('div');
+      childContainer.className = 'call-tree-children';
+      if (depth >= initialExpandDepth) {
+        childContainer.classList.add('collapsed');
+      }
+      for (const child of node.children) {
+        renderNodeInto(child, depth + 1, childContainer);
+      }
+      parentEl.appendChild(childContainer);
+
+      toggle.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isCollapsed = childContainer.classList.contains('collapsed');
+        childContainer.classList.toggle('collapsed');
+        toggle.className = 'call-tree-toggle ' + (isCollapsed ? 'expanded' : 'collapsed');
+      });
+    }
+  }
+
+  // Render root's children (skip root node itself since it's the method we clicked)
+  if (tree.children && tree.children.length > 0) {
+    for (const child of tree.children) {
+      renderNodeInto(child, 0, container);
+    }
+  } else {
+    const empty = document.createElement('div');
+    empty.className = 'trace-empty-msg';
+    empty.textContent = 'No deeper call data available.';
+    container.appendChild(empty);
+  }
 }
 
 // ============================================================
@@ -2341,6 +2601,19 @@ window.addEventListener('message', ev => {
     case 'impactResult':
       _showImpact(msg);
       break;
+    case 'callTreeResult':
+      _showCallTreeResult(msg);
+      break;
+    case 'callPathExplanation': {
+      const explainEl = document.getElementById('call-path-explanation');
+      if (explainEl) {
+        explainEl.textContent = msg.explanation || 'No explanation available.';
+        explainEl.style.display = 'block';
+      }
+      const btn = tracePanelList.querySelector('.trace-explain-btn');
+      if (btn) { btn.textContent = 'Explain this call path'; btn.disabled = false; }
+      break;
+    }
     case 'anchorResult':
       _showAnchorResult(msg);
       break;
@@ -3733,7 +4006,21 @@ function enterTraceMode(entry, meta, rowEl) {
       sequence.push({seqNum: i + 1, className: t.split('::').pop(), members: [], dominantKind: 'call'}));
   }
 
-  if (sequence.length === 0) return;
+  if (sequence.length === 0) {
+    // Still enter trace mode but show informative message instead of silent exit
+    traceMode = {className: entry.className, sig, rowEl};
+    if (rowEl) rowEl.classList.add('trace-method-active');
+    tracePanelTitle.textContent = `${entry.className}::${trimSignature(sig)}`;
+    tracePanelList.innerHTML = '<div class="trace-empty-msg">' +
+      'No call data available for this method.<br>' +
+      '<span style="color:#888;font-size:10px;">' +
+      'Possible reasons: method body not in parsed files, ' +
+      'or only a declaration without definition.</span></div>';
+    tracePanel.classList.add('visible');
+    // Request full call tree from extension (may have data via recursive lookup)
+    vscode.postMessage({ type: 'requestCallTree', className: entry.className, methodSignature: sig });
+    return;
+  }
 
   traceMode = {className: entry.className, sig, rowEl};
 
@@ -3812,6 +4099,9 @@ function enterTraceMode(entry, meta, rowEl) {
   });
 
   tracePanel.classList.add('visible');
+
+  // M27-11: Request recursive call tree from extension
+  vscode.postMessage({ type: 'requestCallTree', className: entry.className, methodSignature: sig });
 }
 
 function selectNode(className) {

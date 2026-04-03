@@ -15,6 +15,7 @@ import type { WebviewToExtension } from '../shared/messages';
 import type { IAnalysisProvider, ClassEntry, ModuleEntry } from '../shared/types';
 import { buildTraceContext, computeImpact } from '../analysis/context';
 import { buildFlow } from '../analysis/flowBuilder';
+import { buildCallTree } from '../analysis/callTree';
 
 export class TraceController implements ModeController {
   private panel: vscode.WebviewPanel | undefined;
@@ -50,6 +51,12 @@ export class TraceController implements ModeController {
         return true;
       case 'flowQuery':
         this._handleFlowQuery(message.query);
+        return true;
+      case 'requestCallTree':
+        this._handleCallTree(message.className, message.methodSignature, message.maxDepth);
+        return true;
+      case 'requestCallPathExplain':
+        this._handleCallPathExplain(message.className, message.methodSignature, message.path);
         return true;
       default:
         return false;
@@ -135,6 +142,37 @@ export class TraceController implements ModeController {
       type: 'flowResult',
       query,
       flows: flows.slice(0, 5),
+    });
+  }
+
+  private _handleCallTree(className: string, methodSignature: string, maxDepth?: number): void {
+    if (!this.panel) { return; }
+    const nameMatch = methodSignature.match(/\b([a-zA-Z_~]\w*)\s*\(/);
+    const methodName = nameMatch ? nameMatch[1] : methodSignature;
+    const tree = buildCallTree(className, methodName, this.allEntries, maxDepth ?? 10);
+    this.panel.webview.postMessage({
+      type: 'callTreeResult',
+      className,
+      methodSignature,
+      tree,
+    });
+  }
+
+  private async _handleCallPathExplain(
+    className: string,
+    _methodSignature: string,
+    path: import('../shared/types').CallStep[],
+  ): Promise<void> {
+    if (!this.panel) { return; }
+    const subgraph = this.allEntries.filter(e => {
+      const short = e.className.split('::').pop();
+      return path.some(s => s.targetClass === e.className || s.targetClass === short);
+    });
+    const explanation = await this.provider.explainChain(path, subgraph);
+    this.panel.webview.postMessage({
+      type: 'callPathExplanation',
+      className,
+      explanation,
     });
   }
 }

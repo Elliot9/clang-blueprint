@@ -12,6 +12,7 @@
 import type { ClassEntry, CallStep, ChatMessage, RelevanceMatch, ModuleEntry, ModuleEdge, EntryPoint, ModuleSummary } from './types';
 import type { ExplorationPath } from '../analysis/explorationPath';
 import type { Flow } from '../analysis/flowBuilder';
+import type { CallTreeNode } from '../analysis/callTree';
 
 // ---------------------------------------------------------------------------
 // Active application mode
@@ -166,6 +167,21 @@ export interface MsgFlowResult {
   flows: Flow[];
 }
 
+/** Call tree result (M27-07) */
+export interface MsgCallTreeResult {
+  type: 'callTreeResult';
+  className: string;
+  methodSignature: string;
+  tree: CallTreeNode;
+}
+
+/** AI explanation of a call path (M27-12) */
+export interface MsgCallPathExplanation {
+  type: 'callPathExplanation';
+  className: string;
+  explanation: string;
+}
+
 export type ExtensionToWebview =
   | MsgIndexLoaded
   | MsgModeChanged
@@ -187,7 +203,9 @@ export type ExtensionToWebview =
   | MsgProjectSummary
   | MsgExplorationPath
   | MsgKeyFlows
-  | MsgFlowResult;
+  | MsgFlowResult
+  | MsgCallTreeResult
+  | MsgCallPathExplanation;
 
 // ---------------------------------------------------------------------------
 // Webview → Extension Host
@@ -307,6 +325,22 @@ export interface WvFlowQuery {
   query: string;
 }
 
+/** Request call tree for a method (M27-07) */
+export interface WvRequestCallTree {
+  type: 'requestCallTree';
+  className: string;
+  methodSignature: string;
+  maxDepth?: number;
+}
+
+/** Request AI explanation of a call path (M27-12) */
+export interface WvRequestCallPathExplain {
+  type: 'requestCallPathExplain';
+  className: string;
+  methodSignature: string;
+  path: CallStep[];
+}
+
 /** Canvas selection sync → chat context (M26-03) */
 export interface WvCanvasSelect {
   type: 'canvasSelect';
@@ -332,4 +366,6 @@ export type WebviewToExtension =
   | WvModuleDrillDown
   | WvModuleOverview
   | WvFlowQuery
+  | WvRequestCallTree
+  | WvRequestCallPathExplain
   | WvCanvasSelect;

@@ -756,6 +756,493 @@
 
 ---
 
+## ⚡ Phase 27：Deep Call Tree — 方法呼叫樹完整化
+
+> **問題診斷**（2026-04-03 實測發現）：
+>
+> 點擊 method 後期望看到遞迴呼叫樹（如 `main → AppService::PrepareManagers → DeviceManager → loadConfig`），
+> 但實際什麼都沒顯示。根本原因是三層斷點疊加：
+>
+> | 層 | 現況 | 缺口 |
+> |---|---|---|
+> | Scanner `_scan_method_accesses` | 只抓 `MEMBER_REF_EXPR` | 漏掉 `CALL_EXPR`（函式呼叫）、constructor（`Baz b(42)`）、static call（`Baz::helper()`） |
+> | Scanner 去重 | `seen` set 按 `(targetClass, member)` 去重 | 同一 target 被呼叫多次只記一次，破壞順序完整性 |
+> | Scanner 深度 | 只掃當前 method body 的直接引用 | 不遞迴展開被呼叫方法的 body → 只有一層 |
+> | Webview | `callSequence` 空 → `if (sequence.length === 0) return;` 靜默退出 | 用戶點了沒反應，無 fallback |
+> | Webview | 有資料時顯示平坦 step list | 不是樹狀結構，無法表達縮排層級 |
+>
+> **實測數據**（3486 class，36994 method）：
+> - 72% 的 public method callSequence 為空（20683 / 28372）
+> - 有資料的 step 中：54% self field、39% ext call、6% ext field → 沒有 constructor、free function、static call
+> - 所有 `main()` 的 callSequence 長度 = 0
+> - 最富 callSequence 的 method 只有 55 步（且只有一層深度）
+>
+> **目標**：點擊任何 method → 展開可折疊的呼叫樹，顯示完整的
+> `A::foo → B::bar → C::baz` 調用路徑（遞迴到深度 10），涵蓋所有呼叫類型。
+>
+> **成果指標**：
+> - `main()` 的 callSequence 非空
+> - callSequence 非空比例從 28% → ≥ 70%
+> - 點擊 method 永遠有反饋（有資料 → 樹；無資料 → 提示訊息）
+> - 樹狀展開可遞迴顯示至少 5 層深
+
+---
+
+### 第一段：Scanner — 擴展 callSequence 抓取範圍
+
+> **意圖**：讓 `_scan_method_accesses` 從 "只看成員引用" 變成 "看所有呼叫行為"，
+> 使每個 method 的 callSequence 完整反映 body 裡的調用順序。
+>
+> **不做的事**：這一段不做遞迴展開，只確保單層（當前 method body）的資料完整。
+> 遞迴拼接在第二段由 TypeScript 端負責。
+
+#### M27-01 ✅ — 新增 `CALL_EXPR` 擷取（free function + static method）
+
+**檔案**：`scanner/ast_parser.py` → `_scan_method_accesses` 的 `_walk()` 函數
+
+**現況**：`_walk` 只檢查 `c.kind == CursorKind.MEMBER_REF_EXPR`
+
+**改法**：在 `_walk` 中新增一個 `elif c.kind == CursorKind.CALL_EXPR` 分支：
+
+```
+libclang AST 結構（實測確認）：
+  f.bar()          → CALL_EXPR(spelling="bar")   > MEMBER_REF_EXPR > DECL_REF_EXPR
+  freeFunc()       → CALL_EXPR(spelling="freeFunc") > UNEXPOSED_EXPR > DECL_REF_EXPR
+  Baz::helper()    → CALL_EXPR(spelling="helper")  > UNEXPOSED_EXPR > DECL_REF_EXPR > TYPE_REF(class Baz)
+```
+
+邏輯：
+1. 對每個 `CALL_EXPR`，取 `c.referenced`
+2. 如果 `referenced` 存在且是 `CursorKind.FUNCTION_DECL`（free function）：
+   - `targetClass` = 合成 class 名（從 referenced.semantic_parent 取 namespace，或用檔名）
+   - `member` = function name
+   - `kind` = "call"
+3. 如果 `referenced` 是 `CursorKind.CXX_METHOD`（static method）：
+   - `targetClass` = `referenced.semantic_parent.spelling`（class name）
+   - `member` = method name
+   - `kind` = "call"
+4. **跳過已經被 MEMBER_REF_EXPR 捕獲的**：如果這個 CALL_EXPR 的子節點包含 MEMBER_REF_EXPR，
+   那個 member call 已被現有邏輯抓到，不要重複記錄。
+   判斷方式：檢查 CALL_EXPR 的 first child 是否是 MEMBER_REF_EXPR。
+
+**去重策略改動**：不改這個 task，在 M27-03 統一處理。
+
+**驗收**：
+- 寫測試 `tests/test_call_tree.py::test_free_function_captured`：free function 出現在 callSequence
+- 寫測試 `tests/test_call_tree.py::test_static_method_captured`：static method 出現，targetClass 正確
+- 用真實 index 驗證：所有 `main()` 的 callSequence 非空
+
+**可獨立開發**：是。純 Python scanner 改動。
+
+---
+
+#### M27-02 ✅ — 新增 constructor 呼叫擷取
+
+**檔案**：`scanner/ast_parser.py` → `_scan_method_accesses` 的 `_walk()` 函數
+
+**現況**：`Baz b(42)` 在 AST 中表現為：
+```
+VAR_DECL(spelling="b")
+  TYPE_REF(spelling="class Baz")
+  CALL_EXPR(spelling="Baz")     ← 這就是 constructor call
+    INTEGER_LITERAL
+```
+
+但現有 `_walk` 不處理這個 pattern。CALL_EXPR spelling = class name 時，表示 constructor。
+
+**改法**：在 M27-01 新增的 `CALL_EXPR` 分支中加一條邏輯：
+- 如果 `c.referenced` 是 `CursorKind.CONSTRUCTOR`：
+  - `targetClass` = `referenced.semantic_parent.spelling`
+  - `member` = constructor 的 class name（即 `targetClass` 本身，或帶參數簽名）
+  - `kind` = "call"
+  - 新增欄位 `isConstructor: true`（給 webview 用來顯示不同 icon）
+
+**驗收**：
+- 測試 `tests/test_call_tree.py::test_constructor_captured`：`Baz b(42)` 出現在 callSequence
+- 測試 `tests/test_call_tree.py::test_new_expr_captured`：`new Baz(42)` 也被抓到
+- 真實 index：含多個 constructor 呼叫的 Initialize 類方法中，所有 constructor 均被捕獲
+
+**可獨立開發**：否，依賴 M27-01 的 CALL_EXPR 分支。但可合併到 M27-01 一起做。
+
+---
+
+#### M27-03 ✅ — 移除 callSequence 去重，改為保留完整有序列表
+
+**檔案**：`scanner/ast_parser.py` → `_scan_method_accesses`
+
+**現況**：
+```python
+seen: list[tuple[str, str]] = []
+# ...
+key = (cls_name, member)
+if key not in seen:
+    seen.append(key)
+    result.append({...})
+```
+同一 target.member 只記錄第一次出現。例如 `syscall(handle, CMD1)` 和 `syscall(handle, CMD2)` 只記一次。
+
+**改法**：
+1. 移除 `seen` 集合和 `if key not in seen` 檢查
+2. 每次 encounter 都 append 到 result（保留完整順序）
+3. `order` 欄位改為從 1 遞增的全局序號
+4. 新增 `lineNumber` 欄位到每個 step（取 `c.location.line`），用於：
+   - webview 點擊 step 可以 jump to source
+   - 排序驗證（line number 應該遞增）
+
+**風險**：step 數量會增加。加上限：單個 method body 最多 200 steps，超過截斷並附 `truncated: true` 標記。
+
+**驗收**：
+- 測試：同一個 target 被呼叫 3 次 → callSequence 有 3 條記錄
+- 測試：每個 step 都有 lineNumber 且遞增
+- 真實 index：最富 callSequence 的 method step 數應 ≥ 55（現為 55，去重移除後應更多）
+
+**可獨立開發**：是。不影響 M27-01/02 的邏輯。
+
+---
+
+#### M27-04 ✅ — 新增 `ioctl` / 系統呼叫語意標記
+
+**檔案**：`scanner/ast_parser.py` → `_scan_method_accesses`
+
+**意圖**：系統程式中 `ioctl(handle, DEVICE_GET_VERSION)` 等呼叫是關鍵語意。
+ioctl 是 free function call（M27-01 會捕獲），但第二個參數（command constant）承載了語意。
+
+**改法**：
+1. 在 CALL_EXPR 處理中，如果 function name 是 `ioctl`/`fcntl`/`prctl` 等 syscall-like function：
+   - 嘗試讀取第二個參數的 spelling（通常是 macro constant 如 `DEVICE_GET_VERSION`）
+   - 附加到 step 的新欄位 `annotation`：`"ioctl @ DEVICE_GET_VERSION"`
+2. 不修改 callSequence schema 的必填欄位，`annotation` 是 optional string
+
+**驗收**：
+- 測試：`ioctl(fd, MY_CMD)` → step 的 annotation = `"ioctl @ MY_CMD"`
+- 真實 index：main 裡的多個 ioctl 各自有不同 annotation
+
+**可獨立開發**：是。只在 M27-01 的 CALL_EXPR 分支上加 annotation 邏輯。
+
+---
+
+#### M27-05 ✅ — 更新 `CallStep` TypeScript 型別 + JSON schema
+
+**檔案**：`vscode-extension/src/shared/types.ts`
+
+**改法**：
+```typescript
+export interface CallStep {
+  targetClass: string;
+  member: string;
+  kind: 'call' | 'field';
+  isWrite?: boolean;
+  isConstructor?: boolean;   // 新增 (M27-02)
+  lineNumber?: number;       // 改為必有 (M27-03)
+  annotation?: string;       // 新增 (M27-04)
+}
+```
+
+同步更新 CLAUDE.md 的 schema 文檔。
+
+**驗收**：`npx tsc --noEmit` 無錯誤
+
+**可獨立開發**：是。純型別改動，不影響 runtime。
+
+---
+
+### 第二段：遞迴呼叫樹建構
+
+> **意圖**：利用第一段產出的完整單層 callSequence，在 TypeScript 端遞迴拼接成多層樹。
+> Scanner 不需要遞迴 — 樹的建構在 runtime 完成，按需展開（lazy）。
+
+#### M27-06 ✅ — 建立 `CallTreeNode` 資料結構 + 建構函數
+
+**檔案**：新建 `vscode-extension/src/analysis/callTree.ts`
+
+**資料結構**：
+```typescript
+export interface CallTreeNode {
+  className: string;
+  method: string;
+  kind: 'call' | 'field';
+  isWrite?: boolean;
+  isConstructor?: boolean;
+  lineNumber?: number;
+  annotation?: string;
+  depth: number;
+  children: CallTreeNode[];   // 遞迴展開的下一層
+  childrenLoaded: boolean;    // false = 尚未展開（lazy）
+  fileLocation?: string;      // 來自 ClassEntry，用於 jump to source
+}
+```
+
+**建構函數**：
+```typescript
+export function buildCallTree(
+  rootClass: string,
+  rootMethod: string,
+  entries: ClassEntry[],
+  maxDepth: number = 10,
+): CallTreeNode
+```
+
+邏輯：
+1. 建立 `Map<className, ClassEntry>` lookup
+2. 從 rootClass 找到對應 ClassEntry
+3. 從 interfaceMeta / privateMethods 找到 rootMethod 的 callSequence
+4. 對每個 step：
+   - 建立 CallTreeNode
+   - 如果 step.kind === 'call' 且 depth < maxDepth：
+     - 遞迴查找 step.targetClass 的 step.member 的 callSequence
+     - 如果找到 → 遞迴建樹（`children`）
+     - 如果找不到 → `childrenLoaded = true, children = []`
+   - 如果 step.kind === 'field' → leaf node（不遞迴）
+5. 循環偵測：維護 `visited: Set<string>`（key = `class::method`），避免無限遞迴
+
+**驗收**：
+- 單元測試：3 個 class 的 mock callSequence → 建出 3 層樹
+- 單元測試：循環引用（A→B→A）不會無限遞迴
+- 單元測試：depth limit 生效
+
+**可獨立開發**：是。純函數，不依賴 scanner 改動（但資料品質依賴第一段）。
+
+---
+
+#### M27-07 ✅ — Extension Host 新增 `requestCallTree` 訊息處理
+
+**檔案**：
+- `vscode-extension/src/shared/messages.ts` — 新增訊息型別
+- `vscode-extension/src/modes/ExploreController.ts` — 處理請求
+- `vscode-extension/src/modes/TraceController.ts` — 處理請求
+
+**新增訊息**：
+```typescript
+// Webview → Extension
+export interface WvRequestCallTree {
+  type: 'requestCallTree';
+  className: string;
+  methodSignature: string;
+  maxDepth?: number;
+}
+
+// Extension → Webview
+export interface MsgCallTreeResult {
+  type: 'callTreeResult';
+  className: string;
+  methodSignature: string;
+  tree: CallTreeNode;
+}
+```
+
+Controller 邏輯：
+1. 收到 `requestCallTree`
+2. 呼叫 `buildCallTree(className, methodName, this.allEntries)`
+3. postMessage `callTreeResult` 回 webview
+
+**驗收**：TypeScript 編譯通過；手動測試 postMessage round-trip
+
+**可獨立開發**：否，依賴 M27-06。
+
+---
+
+### 第三段：Webview — 呼叫樹 UI
+
+> **意圖**：把現有的平坦 step list 替換為可折疊的樹狀視圖。
+> 點擊 method → 展開呼叫樹 → 點擊樹節點可跳到源碼或展開下一層。
+
+#### M27-08 ✅ — 呼叫樹 CSS + HTML 骨架
+
+**檔案**：`vscode-extension/webview/index.html` → `<style>` 區塊
+
+**新增 CSS class**：
+```css
+.call-tree { font-size: 11px; }
+.call-tree-node { 
+  padding: 2px 0 2px calc(var(--depth) * 16px);  /* 依深度縮排 */
+  cursor: pointer; 
+}
+.call-tree-node:hover { background: rgba(255,255,255,0.04); }
+.call-tree-toggle { display: inline-block; width: 14px; cursor: pointer; }
+.call-tree-toggle.expanded::before { content: '▾'; }
+.call-tree-toggle.collapsed::before { content: '▸'; }
+.call-tree-toggle.leaf::before { content: '·'; color: #555; }
+.call-tree-icon { margin-right: 4px; }
+.call-tree-icon.call { color: #4fc3f7; }
+.call-tree-icon.read { color: #7ee787; }
+.call-tree-icon.write { color: #f78166; }
+.call-tree-icon.construct { color: #d4a0ff; }
+.call-tree-annotation { color: #888; font-size: 10px; margin-left: 6px; }
+.call-tree-line { color: #555; font-size: 9px; margin-left: 4px; }
+```
+
+**驗收**：加入 CSS 後頁面無 layout 破壞
+
+**可獨立開發**：是。純 CSS。
+
+---
+
+#### M27-09 ✅ — `renderCallTree()` 函數：遞迴渲染樹 DOM
+
+**檔案**：`vscode-extension/webview/index.html` → `<script>` 區塊
+
+**新增函數**：
+```javascript
+function renderCallTree(tree, container) {
+  // 遞迴渲染 CallTreeNode → DOM
+  // 每個 node 一行：[toggle] [icon] ClassName::method [annotation] [:line]
+  // toggle 可展開/折疊 children
+  // 點擊 node → jump to source（postMessage methodClick）
+  // 點擊 class name → selectNode（canvas 聚焦）
+}
+```
+
+具體邏輯：
+1. 建立 `<div class="call-tree-node">` 並設 `style="--depth: N"`
+2. toggle 按鈕：有 children → `collapsed`/`expanded`；無 children → `leaf`
+3. icon：根據 kind + isConstructor 選擇（call=◆, read=◇, write=◆, construct=★）
+4. class name：包裝為 `<span class="call-tree-class" data-class="X">`，點擊 → selectNode
+5. member name：純文字
+6. annotation（如 `ioctl @ CMD`）：灰色小字
+7. line number：灰色小字，點擊 → postMessage `methodClick`
+8. children container：初始 `display: none`，toggle 切換
+9. 遞迴 children
+
+**驗收**：
+- mock 一棵 3 層樹 → 渲染出正確的縮排結構
+- 點擊 toggle → children 顯示/隱藏
+- 點擊 class name → selectNode 被呼叫
+- 點擊 line number → postMessage 發送
+
+**可獨立開發**：否，依賴 M27-08 的 CSS。可合併開發。
+
+---
+
+#### M27-10 ✅ — 改造 `enterTraceMode`：空 callSequence 不再靜默退出
+
+**檔案**：`vscode-extension/webview/index.html` → `enterTraceMode()` 函數
+
+**現況**（第 3736 行）：
+```javascript
+if (sequence.length === 0) return;  // ← 靜默退出，用戶看不到任何反饋
+```
+
+**改法**：
+```javascript
+if (sequence.length === 0) {
+  // 仍然進入 trace mode，但顯示提示
+  traceMode = {className: entry.className, sig, rowEl};
+  if (rowEl) rowEl.classList.add('trace-method-active');
+  tracePanelTitle.textContent = `${entry.className}::${trimSignature(sig)}`;
+  tracePanelList.innerHTML = '<div class="trace-empty-msg">' +
+    'No call data available for this method.<br>' +
+    '<span style="color:#888;font-size:10px;">' +
+    'Possible reasons: method body not in parsed files, ' +
+    'or only a declaration without definition.</span></div>';
+  tracePanel.classList.add('visible');
+  return;
+}
+```
+
+並且向 extension 請求 call tree：
+```javascript
+vscode.postMessage({ type: 'requestCallTree', className: entry.className, methodSignature: sig });
+```
+
+**驗收**：
+- 點擊任何 method → 永遠有反饋（樹或提示訊息）
+- 空 callSequence → 顯示灰色說明文字 + trace panel 可見
+
+**可獨立開發**：是。不依賴 tree 渲染（先修 silent fail）。
+
+---
+
+#### M27-11 ✅ — Trace Panel 整合呼叫樹
+
+**檔案**：`vscode-extension/webview/index.html`
+
+**改法**：
+1. `enterTraceMode` 在顯示完 flat step list 後，向 extension 發送 `requestCallTree`
+2. 收到 `callTreeResult` 後：
+   - 在 Trace Panel 的 step list 下方新增一個分隔線 + 「Call Tree」section
+   - 呼叫 `renderCallTree(msg.tree, container)`
+   - 首層展開，子層折疊（用戶點擊展開）
+3. 如果 flat list 已經有足夠資訊（< 5 步），不額外顯示 tree（避免資訊重複）
+
+**驗收**：
+- 點擊有豐富 callSequence 的 method → 看到可折疊樹
+- 展開到第 3 層 → 顯示正確的遞迴呼叫
+- 點擊樹節點的 class name → canvas 聚焦到對應 node
+
+**依賴**：M27-07（訊息）, M27-09（渲染）, M27-10（不靜默退出）
+
+---
+
+#### M27-12 ✅ — AI 呼叫路徑解釋
+
+**檔案**：
+- `vscode-extension/src/shared/messages.ts`
+- `vscode-extension/src/modes/TraceController.ts`
+- `vscode-extension/webview/index.html`
+
+**改法**：
+1. Call Tree panel 下方加一個 「Explain this path」按鈕
+2. 點擊 → 取 tree 的 root-to-leaf 最長路徑（或用戶正在看的展開路徑）
+3. 轉為 CallStep[] → 呼叫 `provider.explainChain(steps, context)`
+4. 結果顯示在 tree 下方
+
+**驗收**：
+- 點擊 Explain → AI 返回 1-2 句自然語言解釋
+- 解釋內容與呼叫路徑相符
+
+**依賴**：M27-11
+
+---
+
+### 並行開發地圖
+
+```
+第一段（Python Scanner）                第二段（TypeScript）           第三段（Webview）
+┌──────────────┐                        ┌──────────────┐
+│  M27-01      │                        │  M27-05      │          ┌──────────────┐
+│  CALL_EXPR   │                        │  型別更新     │          │  M27-08      │
+│  + M27-02    │                        └──────┬───────┘          │  CSS 骨架     │
+│  constructor │                               │                  └──────┬───────┘
+└──────┬───────┘                               │                         │
+       │                                ┌──────▼───────┐          ┌──────▼───────┐
+┌──────▼───────┐                        │  M27-06      │          │  M27-09      │
+│  M27-03      │                        │  buildCallTree│         │  renderTree  │
+│  去重移除     │                        └──────┬───────┘          └──────┬───────┘
+└──────┬───────┘                               │                         │
+       │                                ┌──────▼───────┐          ┌──────▼───────┐
+┌──────▼───────┐                        │  M27-07      │          │  M27-10      │◄── 可最先做
+│  M27-04      │                        │  訊息處理     │          │  空值處理     │
+│  ioctl 標記  │                        └──────┬───────┘          └──────┬───────┘
+└──────────────┘                               │                         │
+                                               └────────────┬───────────┘
+                                                     ┌──────▼───────┐
+                                                     │  M27-11      │
+                                                     │  Panel 整合   │
+                                                     └──────┬───────┘
+                                                     ┌──────▼───────┐
+                                                     │  M27-12      │
+                                                     │  AI 解釋      │
+                                                     └──────────────┘
+```
+
+**可完全並行的工作流：**
+- 🟢 M27-01 + M27-02（scanner CALL_EXPR + constructor）：Python，不動 TypeScript
+- 🟢 M27-05（型別更新）：TypeScript types.ts，不動 Python
+- 🟢 M27-08（CSS）：webview，不動 Python 或 TypeScript
+- 🟢 M27-10（空值處理）：webview，不依賴任何其他 task，**建議最先做**
+
+**串接點：**
+- M27-01 + M27-02 + M27-03 完成 → **重新 scan** → 驗證 callSequence 覆蓋率
+- M27-06 完成 → M27-07 可接
+- M27-07 + M27-09 + M27-10 完成 → M27-11 可接
+- M27-11 完成 → M27-12 可接
+
+**驗收里程碑：**
+- **MS-A**：第一段完成 + 重新 scan → callSequence 非空比例 ≥ 70%，main() 非空
+- **MS-B**：M27-10 完成 → 點擊任何 method 都有視覺反饋
+- **MS-C**：M27-11 完成 → 點擊 method 展示可折疊呼叫樹，可遞迴展開 ≥ 5 層
+- **MS-D**：M27-12 完成 → 呼叫路徑有 AI 自然語言解釋
+
 ## 架構總覽
 
 ```

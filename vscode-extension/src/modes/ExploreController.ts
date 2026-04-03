@@ -10,6 +10,7 @@ import type { ModeController } from '../shell/ModeController';
 import type { WebviewToExtension } from '../shared/messages';
 import type { IAnalysisProvider, ClassEntry, ModuleEntry, ModuleEdge, EntryPoint } from '../shared/types';
 import { buildExploreContext } from '../analysis/context';
+import { buildCallTree } from '../analysis/callTree';
 
 export class ExploreController implements ModeController {
   private panel: vscode.WebviewPanel | undefined;
@@ -49,9 +50,46 @@ export class ExploreController implements ModeController {
       case 'moduleOverview':
         this._handleModuleOverview();
         return true;
+      case 'requestCallTree':
+        this._handleCallTree(message.className, message.methodSignature, message.maxDepth);
+        return true;
+      case 'requestCallPathExplain':
+        this._handleCallPathExplain(message.className, message.methodSignature, message.path);
+        return true;
       default:
         return false;
     }
+  }
+
+  private _handleCallTree(className: string, methodSignature: string, maxDepth?: number): void {
+    if (!this.panel) { return; }
+    const nameMatch = methodSignature.match(/\b([a-zA-Z_~]\w*)\s*\(/);
+    const methodName = nameMatch ? nameMatch[1] : methodSignature;
+    const tree = buildCallTree(className, methodName, this.allEntries, maxDepth ?? 10);
+    this.panel.webview.postMessage({
+      type: 'callTreeResult',
+      className,
+      methodSignature,
+      tree,
+    });
+  }
+
+  private async _handleCallPathExplain(
+    className: string,
+    _methodSignature: string,
+    path: import('../shared/types').CallStep[],
+  ): Promise<void> {
+    if (!this.panel) { return; }
+    const subgraph = this.allEntries.filter(e => {
+      const short = e.className.split('::').pop();
+      return path.some(s => s.targetClass === e.className || s.targetClass === short);
+    });
+    const explanation = await this.provider.explainChain(path, subgraph);
+    this.panel.webview.postMessage({
+      type: 'callPathExplanation',
+      className,
+      explanation,
+    });
   }
 
   private async _handleSummaryRequest(className: string): Promise<void> {
