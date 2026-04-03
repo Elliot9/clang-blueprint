@@ -948,11 +948,14 @@ class ASTVisitor:
 
         entry = self._free_fn_entries[group_key]
         if sig not in entry.interfaces:
+            # Scan the function body for call sequence (same as class methods)
+            call_seq = self._scan_method_accesses(cursor, display_name)
             entry.interfaces.append(sig)
             entry.interfaceMeta.append({
                 "signature": sig,
                 "lineNumber": loc.line,
                 "usedTypes": param_types,
+                "callSequence": call_seq,
             })
             # Re-evaluate category as more free functions are observed.
             if is_entrypoint:
