@@ -3977,7 +3977,16 @@ function enterTraceMode(entry, meta, rowEl) {
     return;
   }
   exitTraceMode();
-  if (!meta) return;
+  if (!meta) {
+    // No metadata at all — still show trace panel with message
+    traceMode = {className: entry.className, sig: null, rowEl};
+    if (rowEl) rowEl.classList.add('trace-method-active');
+    tracePanelTitle.textContent = entry.className;
+    tracePanelList.innerHTML = '<div class="trace-empty-msg">' +
+      'No method metadata available.</div>';
+    tracePanel.classList.add('visible');
+    return;
+  }
 
   const callSeq  = meta.callSequence || [];
   const usedTypes = meta.usedTypes || [];
