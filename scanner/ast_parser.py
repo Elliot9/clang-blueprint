@@ -600,7 +600,27 @@ class ASTVisitor:
             templateParams=template_params,
             attributes=attributes,
         )
-        # Use qualified name as key to avoid collisions
+        # Use qualified name as key to avoid collisions.
+        # Merge callSequence from any existing entry — a prior TU that included the
+        # .cpp definition may have populated callSequence that this TU (only seeing
+        # the header declarations) would otherwise overwrite with empty lists.
+        old_entry = self.entries.get(class_key)
+        if old_entry is not None:
+            old_cs_by_sig: dict[str, list] = {}
+            for m in old_entry.interfaceMeta:
+                if m.get("callSequence"):
+                    old_cs_by_sig[m["signature"]] = m["callSequence"]
+            for m in getattr(old_entry, "privateMethods", []) or []:
+                if m.get("callSequence"):
+                    old_cs_by_sig[m["signature"]] = m["callSequence"]
+            # Back-fill into the new entry's meta
+            if old_cs_by_sig:
+                for m in entry.interfaceMeta:
+                    if not m.get("callSequence") and m["signature"] in old_cs_by_sig:
+                        m["callSequence"] = old_cs_by_sig[m["signature"]]
+                for m in entry.privateMethods:
+                    if not m.get("callSequence") and m["signature"] in old_cs_by_sig:
+                        m["callSequence"] = old_cs_by_sig[m["signature"]]
         self.entries[class_key] = entry
 
     def _scan_body_for_deps(
