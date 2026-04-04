@@ -365,6 +365,12 @@ class ASTVisitor:
         # P8-06: after the full TU walk, promote free-function entries
         if depth == 0:
             self.entries.update(self._free_fn_entries)
+            # M27: second pass — scan ALL out-of-line method definitions in this TU
+            # and backfill callSequence into already-created class entries.
+            # This is needed because _visit_class processes the class from the header
+            # where method bodies are absent, and get_definition() may not resolve
+            # across the declaration/definition boundary reliably.
+            self._backfill_all_methods(cursor)
 
     def _visit_class(self, cursor: Any) -> None:
         """Process a class/struct cursor."""
@@ -1019,6 +1025,50 @@ class ASTVisitor:
                 seen.add(k)
                 entry.dependencies.append(Dependency(target=t, type="association"))
 
+    def _backfill_all_methods(self, tu_cursor: Any) -> None:
+        """
+        Second pass over the entire TU: find every out-of-line method definition
+        (CXX_METHOD / CONSTRUCTOR / DESTRUCTOR that is_definition()) and backfill
+        callSequence into the corresponding class entry.
+
+        This is a brute-force walk that doesn't rely on visit() routing or
+        get_definition() cross-referencing.
+        """
+        target_kinds = frozenset({
+            CursorKind.CXX_METHOD,
+            CursorKind.CONSTRUCTOR,
+            CursorKind.DESTRUCTOR,
+        })
+        # Also recurse into these container kinds
+        container_kinds = frozenset({
+            CursorKind.TRANSLATION_UNIT,
+            CursorKind.NAMESPACE,
+            CursorKind.UNEXPOSED_DECL,   # extern "C" { } blocks
+            CursorKind.LINKAGE_SPEC,
+        })
+
+        _debug = os.environ.get("BLUEPRINT_DEBUG_BACKFILL")
+        _found_count = [0]
+
+        def _walk_for_methods(c: Any) -> None:
+            if c.kind in target_kinds and c.is_definition():
+                _found_count[0] += 1
+                if _debug:
+                    import sys
+                    sem = c.semantic_parent
+                    cls = sem.spelling if sem else "?"
+                    print(f"[BACKFILL-WALK] found {cls}::{c.spelling} kind={c.kind}", file=sys.stderr)
+                self._backfill_method_callseq(c)
+                return  # no need to recurse into method body
+            if c.kind in container_kinds:
+                for child in c.get_children():
+                    _walk_for_methods(child)
+
+        _walk_for_methods(tu_cursor)
+        if _debug:
+            import sys
+            print(f"[BACKFILL-WALK] total methods found: {_found_count[0]}", file=sys.stderr)
+
     def _backfill_method_callseq(self, cursor: Any) -> None:
         """
         For an out-of-line method definition (e.g. void Foo::bar() { ... }
@@ -1026,12 +1076,17 @@ class ASTVisitor:
         class entry and backfill callSequence into its interfaceMeta or
         privateMethods.
         """
+        _debug = os.environ.get("BLUEPRINT_DEBUG_BACKFILL")
+
         sem_parent = cursor.semantic_parent
         if not sem_parent or sem_parent.kind not in (
             CursorKind.CLASS_DECL,
             CursorKind.STRUCT_DECL,
             CursorKind.CLASS_TEMPLATE,
         ):
+            if _debug:
+                import sys
+                print(f"[BACKFILL] SKIP {cursor.spelling} — sem_parent kind={sem_parent.kind if sem_parent else 'None'}", file=sys.stderr)
             return
 
         loc = cursor.location
@@ -1039,6 +1094,9 @@ class ASTVisitor:
             return
         file_abs = os.path.abspath(loc.file.name)
         if not _is_definition_in_project(file_abs, self.project_root):
+            if _debug:
+                import sys
+                print(f"[BACKFILL] SKIP {sem_parent.spelling}::{cursor.spelling} — not in project: {file_abs}", file=sys.stderr)
             return
 
         class_name = sem_parent.spelling or ""
@@ -1052,23 +1110,36 @@ class ASTVisitor:
         # Find the entry (try qualified first, then short name)
         entry = self.entries.get(class_key) or self.entries.get(class_name)
         if entry is None:
+            if _debug:
+                import sys
+                print(f"[BACKFILL] SKIP {class_key}::{cursor.spelling} — no entry found (keys: {list(self.entries.keys())[:20]}...)", file=sys.stderr)
             return
 
         sig = _method_signature(cursor)
         call_seq = self._scan_method_accesses(cursor, class_name)
+        if _debug:
+            import sys
+            print(f"[BACKFILL] {class_key}::{cursor.spelling} sig='{sig}' call_seq_len={len(call_seq)}", file=sys.stderr)
         if not call_seq:
             return
 
         # Match by signature in interfaceMeta
+        matched = False
         for meta in entry.interfaceMeta:
             if meta.get("signature") == sig and not meta.get("callSequence"):
                 meta["callSequence"] = call_seq
+                if _debug:
+                    import sys
+                    print(f"[BACKFILL] MATCHED interfaceMeta exact sig for {class_key}::{cursor.spelling}", file=sys.stderr)
                 return
 
         # Match by signature in privateMethods
         for meta in getattr(entry, "privateMethods", []) or []:
             if meta.get("signature") == sig and not meta.get("callSequence"):
                 meta["callSequence"] = call_seq
+                if _debug:
+                    import sys
+                    print(f"[BACKFILL] MATCHED privateMethods exact sig for {class_key}::{cursor.spelling}", file=sys.stderr)
                 return
 
         # Fallback: match by method name (signatures may differ slightly
@@ -1081,13 +1152,25 @@ class ASTVisitor:
             name_match = re.match(r'.*?\b(' + re.escape(method_name) + r')\s*\(', existing_sig)
             if name_match and not meta.get("callSequence"):
                 meta["callSequence"] = call_seq
+                if _debug:
+                    import sys
+                    print(f"[BACKFILL] MATCHED interfaceMeta name-fallback for {class_key}::{cursor.spelling} (entry sig='{existing_sig}')", file=sys.stderr)
                 return
         for meta in getattr(entry, "privateMethods", []) or []:
             existing_sig = meta.get("signature", "")
             name_match = re.match(r'.*?\b(' + re.escape(method_name) + r')\s*\(', existing_sig)
             if name_match and not meta.get("callSequence"):
                 meta["callSequence"] = call_seq
+                if _debug:
+                    import sys
+                    print(f"[BACKFILL] MATCHED privateMethods name-fallback for {class_key}::{cursor.spelling}", file=sys.stderr)
                 return
+
+        if _debug:
+            import sys
+            iface_sigs = [m.get("signature", "") for m in entry.interfaceMeta]
+            priv_sigs = [m.get("signature", "") for m in (getattr(entry, "privateMethods", []) or [])]
+            print(f"[BACKFILL] NO MATCH for {class_key}::{cursor.spelling} sig='{sig}' | iface={iface_sigs} | priv={priv_sigs}", file=sys.stderr)
 
     def _infer_free_fn_responsibility(self, group_name: str, interfaces: list[str]) -> str:
         """
