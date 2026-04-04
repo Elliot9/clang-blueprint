@@ -72,6 +72,14 @@ def cmd_scan(args: argparse.Namespace) -> int:
     # P6-01: collect --exclude patterns (may be repeated); None = use defaults
     exclude_patterns: Optional[list[str]] = args.exclude if args.exclude else None
 
+    if os.environ.get("BLUEPRINT_DEBUG_BACKFILL"):
+        print(
+            "[blueprint] BLUEPRINT_DEBUG_BACKFILL: [BACKFILL] trace lines go to stderr; "
+            "progress bar and scan summaries go to stdout — use e.g. "
+            "`2>backfill_debug.txt` to capture debug without hiding progress.",
+            flush=True,
+        )
+
     if args.incremental:
         from scanner.incremental import incremental_scan
         cache_path = args.cache or None
@@ -98,7 +106,7 @@ def cmd_scan(args: argparse.Namespace) -> int:
         print(
             f"WARNING: Full scan took {elapsed:.1f}s (target: <60s). "
             "Consider using --incremental for subsequent runs.",
-            file=sys.stderr,
+            flush=True,
         )
 
     # B2: also output blueprint_graph.json (reverseDeps for O(1) impact lookups)

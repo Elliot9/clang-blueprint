@@ -1531,10 +1531,12 @@ def parse_files(
         ]
         skipped = before - len(source_files)
         if skipped:
+            # stdout: visible in terminal when stderr is redirected (e.g. 2>backfill_debug.txt)
             print(
                 f"[ast_parser] Excluded {skipped} files via ignore patterns "
                 f"({len(source_files)} remaining)",
-                file=sys.stderr,
+                file=sys.stdout,
+                flush=True,
             )
 
     total = len(source_files)
@@ -1565,7 +1567,7 @@ def parse_files(
             f"\r[blueprint] [{bar}] {pct:5.1f}%  "
             f"{idx:{_W}}/{total} files  "
             f"{len(all_entries)} classes  {eta_str}   ",
-            end='', flush=True, file=sys.stderr,
+            end='', flush=True, file=sys.stdout,
         )
 
     for idx, src in enumerate(source_files, 1):
@@ -1615,10 +1617,10 @@ def parse_files(
         visitor.visit(tu.cursor)
         all_entries.update(visitor.entries)
 
-    # End progress bar, then flush all collected diagnostics
-    print(file=sys.stderr)
+    # End progress bar (stdout so it stays visible when stderr is redirected for debug).
+    print(file=sys.stdout, flush=True)
     for msg in _deferred_diags:
-        print(msg, file=sys.stderr)
+        print(msg, file=sys.stderr, flush=True)
 
     # P14-01: Filter over-included dependencies.
     # `association` (method param/return) and `dependency` (local var) types can
@@ -1652,7 +1654,8 @@ def load_blueprintignore(project_root: str) -> list[str]:
         print(
             f"[blueprint] No .blueprintignore found at {ignore_path} "
             "(create one to exclude directories like 3rd_party/**, build/**)",
-            file=sys.stderr,
+            file=sys.stdout,
+            flush=True,
         )
         return []
     patterns: list[str] = []
@@ -1665,7 +1668,8 @@ def load_blueprintignore(project_root: str) -> list[str]:
     print(
         f"[blueprint] Loaded {len(patterns)} pattern(s) from {ignore_path}: "
         f"{', '.join(patterns[:5])}{'…' if len(patterns) > 5 else ''}",
-        file=sys.stderr,
+        file=sys.stdout,
+        flush=True,
     )
     return patterns
 
@@ -1736,7 +1740,8 @@ def scan_directory(
     print(
         f"[blueprint] Active exclude patterns ({len(patterns)}): "
         f"{', '.join(patterns[:8])}{'…' if len(patterns) > 8 else ''}",
-        file=sys.stderr,
+        file=sys.stdout,
+        flush=True,
     )
 
     root = Path(project_root)
@@ -1753,7 +1758,8 @@ def scan_directory(
 
     print(
         f"[ast_parser] Found {len(source_files)} source files under {project_root}",
-        file=sys.stderr,
+        file=sys.stdout,
+        flush=True,
     )
 
     return parse_files(

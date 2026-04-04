@@ -135,7 +135,8 @@ def incremental_scan(
     print(
         f"[blueprint] Active exclude patterns ({len(patterns)}): "
         f"{', '.join(patterns[:8])}{'…' if len(patterns) > 8 else ''}",
-        file=sys.stderr,
+        file=sys.stdout,
+        flush=True,
     )
 
     cache = load_cache(cache_path)
@@ -183,7 +184,8 @@ def incremental_scan(
     print(
         f"[incremental] {len(unchanged_files)} unchanged, "
         f"{len(changed_files)} changed/new files.",
-        file=sys.stderr,
+        file=sys.stdout,
+        flush=True,
     )
 
     # Re-parse only changed files
@@ -245,7 +247,8 @@ def incremental_scan(
 
     print(
         f"[incremental] Total entries after merge: {len(deduped)}",
-        file=sys.stderr,
+        file=sys.stdout,
+        flush=True,
     )
     return deduped
 
