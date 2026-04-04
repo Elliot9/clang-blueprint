@@ -122,8 +122,10 @@ export function buildCallTree(
       node.childrenLoaded = true;
       for (const childStep of callSeq) {
         if (childStep.targetClass === '_meta_') { continue; }
+        // Resolve _self_ back to the current class for recursive lookup
+        const resolvedClass = childStep.targetClass === '_self_' ? className : childStep.targetClass;
         const childNode = buildNode(
-          childStep.targetClass,
+          resolvedClass,
           childStep.member,
           childStep,
           depth + 1,

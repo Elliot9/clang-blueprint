@@ -725,9 +725,9 @@ class ASTVisitor:
                         if not cls_name or _is_trivial_type(cls_name):
                             pass  # skip builtins / STL
                         elif _is_self(cls_name):
-                            # Own-class field access (not method calls on self)
+                            # Own-class access: field or method call on self
+                            member = ref.spelling or ""
                             if ref.kind == CursorKind.FIELD_DECL:
-                                member = ref.spelling or ""
                                 is_write = _is_write(c, parent)
                                 _append({
                                     "targetClass": "_self_",
@@ -736,6 +736,22 @@ class ASTVisitor:
                                     "isWrite":     is_write,
                                     "lineNumber":  _get_line(c),
                                 })
+                            elif ref.kind == CursorKind.CXX_METHOD:
+                                # Self method call: this->foo() or implicit foo()
+                                _append({
+                                    "targetClass": "_self_",
+                                    "member":      member,
+                                    "kind":        "call",
+                                    "isWrite":     False,
+                                    "lineNumber":  _get_line(c),
+                                })
+                                # Track so CALL_EXPR won't double-record
+                                if parent and parent.kind == CursorKind.CALL_EXPR:
+                                    ploc = parent.location
+                                    if ploc and ploc.file:
+                                        member_call_locations.add(
+                                            (ploc.file.name, ploc.line, ploc.column)
+                                        )
                         else:
                             # External project class — restrict to project-owned
                             ok = True
