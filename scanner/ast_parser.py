@@ -1615,7 +1615,32 @@ def parse_files(
 
         visitor = ASTVisitor(src_abs, project_root)
         visitor.visit(tu.cursor)
-        all_entries.update(visitor.entries)
+
+        # Merge visitor entries into all_entries, preserving callSequence
+        # that was filled by a previous TU's backfill pass.
+        # Without this, a later TU that #includes the same header would
+        # overwrite the entry with one that has empty callSequence (because
+        # the method bodies live in a different .cpp file).
+        for key, new_entry in visitor.entries.items():
+            old_entry = all_entries.get(key)
+            if old_entry is not None:
+                # Collect callSequence from old entry by signature
+                old_cs: dict[str, list] = {}
+                for m in old_entry.interfaceMeta:
+                    if m.get("callSequence"):
+                        old_cs[m["signature"]] = m["callSequence"]
+                for m in getattr(old_entry, "privateMethods", []) or []:
+                    if m.get("callSequence"):
+                        old_cs[m["signature"]] = m["callSequence"]
+                # Backfill into new entry where callSequence is missing
+                if old_cs:
+                    for m in new_entry.interfaceMeta:
+                        if not m.get("callSequence") and m.get("signature") in old_cs:
+                            m["callSequence"] = old_cs[m["signature"]]
+                    for m in getattr(new_entry, "privateMethods", []) or []:
+                        if not m.get("callSequence") and m.get("signature") in old_cs:
+                            m["callSequence"] = old_cs[m["signature"]]
+            all_entries[key] = new_entry
 
     # End progress bar (stdout so it stays visible when stderr is redirected for debug).
     print(file=sys.stdout, flush=True)
