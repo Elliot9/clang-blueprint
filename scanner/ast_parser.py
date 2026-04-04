@@ -347,6 +347,18 @@ class ASTVisitor:
             self._visit_free_function(cursor)
             return
 
+        # M27: out-of-line method definitions (void Foo::bar() { ... } at TU top-level)
+        # These appear as CXX_METHOD/CONSTRUCTOR/DESTRUCTOR cursors whose semantic_parent
+        # is a CLASS_DECL. The class was already indexed from the header; we backfill
+        # the callSequence for the corresponding interfaceMeta / privateMethods entry.
+        if cursor.kind in (
+            CursorKind.CXX_METHOD,
+            CursorKind.CONSTRUCTOR,
+            CursorKind.DESTRUCTOR,
+        ) and cursor.is_definition():
+            self._backfill_method_callseq(cursor)
+            return
+
         for child in cursor.get_children():
             self.visit(child, depth + 1)
 
@@ -986,6 +998,76 @@ class ASTVisitor:
             if k not in seen:
                 seen.add(k)
                 entry.dependencies.append(Dependency(target=t, type="association"))
+
+    def _backfill_method_callseq(self, cursor: Any) -> None:
+        """
+        For an out-of-line method definition (e.g. void Foo::bar() { ... }
+        appearing at TU namespace scope in a .cpp file), find the corresponding
+        class entry and backfill callSequence into its interfaceMeta or
+        privateMethods.
+        """
+        sem_parent = cursor.semantic_parent
+        if not sem_parent or sem_parent.kind not in (
+            CursorKind.CLASS_DECL,
+            CursorKind.STRUCT_DECL,
+            CursorKind.CLASS_TEMPLATE,
+        ):
+            return
+
+        loc = cursor.location
+        if not loc or not loc.file:
+            return
+        file_abs = os.path.abspath(loc.file.name)
+        if not _is_definition_in_project(file_abs, self.project_root):
+            return
+
+        class_name = sem_parent.spelling or ""
+        if not class_name:
+            return
+
+        # Build the qualified key the same way _visit_class does
+        ns = _get_namespace(sem_parent)
+        class_key = f"{ns}::{class_name}" if ns else class_name
+
+        # Find the entry (try qualified first, then short name)
+        entry = self.entries.get(class_key) or self.entries.get(class_name)
+        if entry is None:
+            return
+
+        sig = _method_signature(cursor)
+        call_seq = self._scan_method_accesses(cursor, class_name)
+        if not call_seq:
+            return
+
+        # Match by signature in interfaceMeta
+        for meta in entry.interfaceMeta:
+            if meta.get("signature") == sig and not meta.get("callSequence"):
+                meta["callSequence"] = call_seq
+                return
+
+        # Match by signature in privateMethods
+        for meta in getattr(entry, "privateMethods", []) or []:
+            if meta.get("signature") == sig and not meta.get("callSequence"):
+                meta["callSequence"] = call_seq
+                return
+
+        # Fallback: match by method name (signatures may differ slightly
+        # between declaration in .h and definition in .cpp)
+        method_name = cursor.spelling or ""
+        if not method_name:
+            return
+        for meta in entry.interfaceMeta:
+            existing_sig = meta.get("signature", "")
+            name_match = re.match(r'.*?\b(' + re.escape(method_name) + r')\s*\(', existing_sig)
+            if name_match and not meta.get("callSequence"):
+                meta["callSequence"] = call_seq
+                return
+        for meta in getattr(entry, "privateMethods", []) or []:
+            existing_sig = meta.get("signature", "")
+            name_match = re.match(r'.*?\b(' + re.escape(method_name) + r')\s*\(', existing_sig)
+            if name_match and not meta.get("callSequence"):
+                meta["callSequence"] = call_seq
+                return
 
     def _infer_free_fn_responsibility(self, group_name: str, interfaces: list[str]) -> str:
         """
