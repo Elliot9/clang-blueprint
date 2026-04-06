@@ -16,7 +16,7 @@ import type { IAnalysisProvider, ClassEntry, ModuleEntry } from '../shared/types
 import { buildTraceContext, computeImpact } from '../analysis/context';
 import { buildFlow } from '../analysis/flowBuilder';
 import { buildCallTree } from '../analysis/callTree';
-import { buildCallerTree, queryFieldAccessors } from '../analysis/callerIndex';
+import { buildCallerTree, queryFieldAccessors, queryTypeUsage } from '../analysis/callerIndex';
 
 export class TraceController implements ModeController {
   private panel: vscode.WebviewPanel | undefined;
@@ -64,6 +64,9 @@ export class TraceController implements ModeController {
         return true;
       case 'requestFieldAccessors':
         this._handleFieldAccessors(message.className, message.fieldName);
+        return true;
+      case 'requestTypeUsage':
+        this._handleTypeUsage(message.typeName);
         return true;
       default:
         return false;
@@ -185,6 +188,16 @@ export class TraceController implements ModeController {
       type: 'fieldAccessorsResult',
       className,
       fieldName,
+      result,
+    });
+  }
+
+  private _handleTypeUsage(typeName: string): void {
+    if (!this.panel) { return; }
+    const result = queryTypeUsage(typeName, this.allEntries);
+    this.panel.webview.postMessage({
+      type: 'typeUsageResult',
+      typeName,
       result,
     });
   }

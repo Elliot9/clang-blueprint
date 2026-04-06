@@ -429,6 +429,13 @@
     .call-tree-icon.ct-write { color: #f78166; }
     .call-tree-icon.ct-construct { color: #d4a0ff; }
     .call-tree-icon.ct-caller { color: #f0a851; }
+    /* M28-10: type usage button */
+    .node-type-usage-btn {
+      display: inline-block; cursor: pointer; font-size: 10px; color: #666;
+      margin-left: 4px; padding: 0 3px; border-radius: 3px;
+      vertical-align: middle;
+    }
+    .node-type-usage-btn:hover { color: #4fc3f7; background: rgba(79,195,247,0.1); }
     .call-tree-class { color: #9cdcfe; cursor: pointer; }
     .call-tree-class:hover { text-decoration: underline; }
     .call-tree-class.ct-self { color: #4ec9b0; font-style: italic; }
@@ -3293,6 +3300,107 @@ function _showFieldAccessorsResult(msg) {
 }
 
 // ============================================================
+//  Type Usage Result Handler (M28-10)
+// ============================================================
+function _showTypeUsageResult(msg) {
+  const { typeName, result } = msg;
+
+  exitTraceMode();
+  traceMode = { className: typeName, sig: '', rowEl: null };
+  tracePanelTitle.textContent = typeName;
+  tracePanelList.innerHTML = '';
+
+  const section = document.createElement('div');
+  section.className = 'type-usage-section';
+
+  const header = document.createElement('div');
+  header.className = 'call-tree-section-title';
+  header.textContent = T('typeUsageTitle') || 'Type Usage Analysis';
+  section.appendChild(header);
+
+  const total = result.asField.length + result.asParam.length + result.asLocal.length + result.asBase.length;
+
+  if (total === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'trace-empty-msg';
+    empty.textContent = T('noTypeUsage') || 'No usages found for this type.';
+    section.appendChild(empty);
+    tracePanelList.appendChild(section);
+    tracePanel.classList.add('visible');
+    return;
+  }
+
+  function renderGroup(title, icon, color, refs, extraInfo) {
+    if (refs.length === 0) return;
+    const groupHeader = document.createElement('div');
+    groupHeader.style.cssText = `padding: 6px 10px 2px; font-size: 10px; color: ${color}; text-transform: uppercase; letter-spacing: 0.5px;`;
+    groupHeader.textContent = `${icon} ${title} (${refs.length})`;
+    section.appendChild(groupHeader);
+
+    for (const ref of refs) {
+      const row = document.createElement('div');
+      row.style.cssText = 'display: flex; align-items: center; gap: 4px; padding: 3px 10px; cursor: pointer; font-size: 11px;';
+      row.addEventListener('mouseenter', () => { row.style.background = 'rgba(255,255,255,0.04)'; });
+      row.addEventListener('mouseleave', () => { row.style.background = ''; });
+
+      // Badge
+      const badge = document.createElement('span');
+      badge.style.cssText = `font-size: 9px; font-weight: bold; padding: 1px 5px; border-radius: 3px; background: ${color}22; color: ${color};`;
+      badge.textContent = extraInfo ? extraInfo(ref) : ref.usageKind;
+      row.appendChild(badge);
+
+      // Class name
+      const cls = document.createElement('span');
+      cls.style.cssText = 'color: #9cdcfe;';
+      cls.textContent = ref.className.split('::').pop();
+      row.appendChild(cls);
+
+      // Method (if available)
+      if (ref.methodSignature) {
+        const sep = document.createElement('span');
+        sep.style.color = '#555';
+        sep.textContent = '::';
+        row.appendChild(sep);
+        const meth = document.createElement('span');
+        meth.style.color = '#dcdcaa';
+        const nameMatch = ref.methodSignature.match(/\b([a-zA-Z_~]\w*)\s*\(/);
+        meth.textContent = nameMatch ? nameMatch[1] + '()' : ref.methodSignature;
+        meth.title = ref.methodSignature;
+        row.appendChild(meth);
+      }
+
+      row.addEventListener('click', () => {
+        const cn = ref.className.split('::').pop();
+        if (nodes[cn]) centerOn(cn);
+      });
+
+      section.appendChild(row);
+    }
+  }
+
+  renderGroup(
+    T('typeAsField') || 'As Member Field',
+    '\u25A0', '#4fc3f7', result.asField,
+    (r) => r.depType === 'composition' ? 'own' : 'ptr'
+  );
+  renderGroup(
+    T('typeAsParam') || 'As Param / Return',
+    '\u25B6', '#c586c0', result.asParam
+  );
+  renderGroup(
+    T('typeAsLocal') || 'As Local Variable',
+    '\u25CB', '#dcdcaa', result.asLocal
+  );
+  renderGroup(
+    T('typeAsBase') || 'Inherits From',
+    '\u25B2', '#f0a851', result.asBase
+  );
+
+  tracePanelList.appendChild(section);
+  tracePanel.classList.add('visible');
+}
+
+// ============================================================
 //  Canvas ↔ Chat Sync (M26-03)
 // ============================================================
 function _onCanvasNodeSelected(className) {
@@ -3531,6 +3639,9 @@ window.addEventListener('message', ev => {
       break;
     case 'fieldAccessorsResult':
       _showFieldAccessorsResult(msg);
+      break;
+    case 'typeUsageResult':
+      _showTypeUsageResult(msg);
       break;
     case 'callPathExplanation': {
       const explainEl = document.getElementById('call-path-explanation');
@@ -4117,6 +4228,17 @@ function _legacyCreateNodeEl(entry, opts = {}) {
   nameEl.textContent = entry.className;
   nameEl.title = entry.className;
   info.appendChild(nameEl);
+
+  // M28-10: "Who uses this type?" button
+  const usageBtn = document.createElement('span');
+  usageBtn.className = 'node-type-usage-btn';
+  usageBtn.textContent = '\u2190'; // ← arrow
+  usageBtn.title = T('typeUsageHint') || 'Show who uses this type';
+  usageBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    vscode.postMessage({ type: 'requestTypeUsage', typeName: entry.className });
+  });
+  info.appendChild(usageBtn);
 
   if (entry.templateParams && entry.templateParams.length > 0) {
     const tp = document.createElement('div');

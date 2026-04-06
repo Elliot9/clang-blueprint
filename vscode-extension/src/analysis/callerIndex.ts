@@ -177,6 +177,142 @@ export function queryFieldAccessors(
 }
 
 // ---------------------------------------------------------------------------
+// Type usage analysis (M28-10)
+// ---------------------------------------------------------------------------
+
+export interface TypeUsageRef {
+  /** Class that uses the type */
+  className: string;
+  /** How it's used */
+  usageKind: 'field' | 'param' | 'local' | 'inherit';
+  /** Dependency type from scanner (composition/aggregation/association/dependency/inheritance) */
+  depType: string;
+  /** Method signature where the type appears (for param/local) */
+  methodSignature?: string;
+  /** File location of the referencing class */
+  fileLocation?: string;
+}
+
+export interface TypeUsageResult {
+  typeName: string;
+  /** Classes that have this type as a member field */
+  asField: TypeUsageRef[];
+  /** Methods that use this type as parameter or return type */
+  asParam: TypeUsageRef[];
+  /** Methods that declare a local variable of this type */
+  asLocal: TypeUsageRef[];
+  /** Classes that inherit from this type */
+  asBase: TypeUsageRef[];
+}
+
+/**
+ * Find all usages of a given type across all class entries.
+ * Works for structs, enums, and any type — even those without constructors.
+ *
+ * Sources:
+ * - dependencies[].target matching typeName → field / param / local / inherit
+ * - interfaceMeta[].usedTypes / privateMethods[].usedTypes → param/return usage
+ */
+export function queryTypeUsage(
+  typeName: string,
+  entries: ClassEntry[],
+): TypeUsageResult {
+  const shortName = typeName.split('::').pop() ?? typeName;
+
+  const asField: TypeUsageRef[] = [];
+  const asParam: TypeUsageRef[] = [];
+  const asLocal: TypeUsageRef[] = [];
+  const asBase: TypeUsageRef[] = [];
+
+  function matches(target: string): boolean {
+    return target === typeName || target === shortName;
+  }
+
+  for (const entry of entries) {
+    // Skip self-references
+    if (entry.className === typeName || entry.className.split('::').pop() === shortName) {
+      continue;
+    }
+
+    // 1. Dependencies
+    for (const dep of entry.dependencies) {
+      if (!matches(dep.target)) { continue; }
+
+      switch (dep.type) {
+        case 'composition':
+        case 'aggregation':
+          asField.push({
+            className: entry.className,
+            usageKind: 'field',
+            depType: dep.type,
+            fileLocation: entry.fileLocation,
+          });
+          break;
+        case 'association':
+          asParam.push({
+            className: entry.className,
+            usageKind: 'param',
+            depType: dep.type,
+            fileLocation: entry.fileLocation,
+          });
+          break;
+        case 'dependency':
+          asLocal.push({
+            className: entry.className,
+            usageKind: 'local',
+            depType: dep.type,
+            fileLocation: entry.fileLocation,
+          });
+          break;
+        case 'inheritance':
+          asBase.push({
+            className: entry.className,
+            usageKind: 'inherit',
+            depType: dep.type,
+            fileLocation: entry.fileLocation,
+          });
+          break;
+      }
+    }
+
+    // 2. usedTypes in method metadata — gives method-level granularity
+    const allMethods = [
+      ...(entry.interfaceMeta ?? []),
+      ...(entry.privateMethods ?? []),
+    ];
+    for (const method of allMethods) {
+      if (!method.usedTypes) { continue; }
+      for (const ut of method.usedTypes) {
+        if (matches(ut)) {
+          // Check if already captured via dependency; add method-level detail
+          asParam.push({
+            className: entry.className,
+            usageKind: 'param',
+            depType: 'association',
+            methodSignature: method.signature,
+            fileLocation: entry.fileLocation,
+          });
+          break; // one per method is enough
+        }
+      }
+    }
+  }
+
+  // Deduplicate asParam (dependency-level + method-level may overlap)
+  const paramSeen = new Set<string>();
+  const dedupedParam: TypeUsageRef[] = [];
+  for (const ref of asParam) {
+    const key = `${ref.className}::${ref.methodSignature ?? ''}`;
+    if (!paramSeen.has(key)) {
+      paramSeen.add(key);
+      dedupedParam.push(ref);
+    }
+  }
+
+  return { typeName, asField, asParam: dedupedParam, asLocal, asBase };
+}
+
+// ---------------------------------------------------------------------------
 // Caller tree (M28-02)
 // ---------------------------------------------------------------------------
 

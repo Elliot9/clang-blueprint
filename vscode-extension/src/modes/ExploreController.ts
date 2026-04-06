@@ -11,7 +11,7 @@ import type { WebviewToExtension } from '../shared/messages';
 import type { IAnalysisProvider, ClassEntry, ModuleEntry, ModuleEdge, EntryPoint } from '../shared/types';
 import { buildExploreContext } from '../analysis/context';
 import { buildCallTree } from '../analysis/callTree';
-import { buildCallerTree, queryFieldAccessors } from '../analysis/callerIndex';
+import { buildCallerTree, queryFieldAccessors, queryTypeUsage } from '../analysis/callerIndex';
 
 function maxClassesForWebview(): number {
   return vscode.workspace.getConfiguration('clangBlueprint').get<number>('maxClassesInDiagram') ?? 100;
@@ -67,6 +67,9 @@ export class ExploreController implements ModeController {
       case 'requestFieldAccessors':
         this._handleFieldAccessors(message.className, message.fieldName);
         return true;
+      case 'requestTypeUsage':
+        this._handleTypeUsage(message.typeName);
+        return true;
       default:
         return false;
     }
@@ -105,6 +108,16 @@ export class ExploreController implements ModeController {
       type: 'fieldAccessorsResult',
       className,
       fieldName,
+      result,
+    });
+  }
+
+  private _handleTypeUsage(typeName: string): void {
+    if (!this.panel) { return; }
+    const result = queryTypeUsage(typeName, this.allEntries);
+    this.panel.webview.postMessage({
+      type: 'typeUsageResult',
+      typeName,
       result,
     });
   }
