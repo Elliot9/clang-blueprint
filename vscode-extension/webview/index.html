@@ -3191,6 +3191,108 @@ function renderCallerTree(tree, container, initialExpandDepth) {
 }
 
 // ============================================================
+//  Field Accessor Result Handler (M28-09)
+// ============================================================
+function _showFieldAccessorsResult(msg) {
+  const { className, fieldName, result } = msg;
+
+  // Show in trace panel (reuse the panel infrastructure)
+  exitTraceMode();
+  traceMode = { className, sig: fieldName, rowEl: null };
+  tracePanelTitle.textContent = `${className}::${fieldName}`;
+  tracePanelList.innerHTML = '';
+
+  const section = document.createElement('div');
+  section.className = 'field-accessors-section';
+
+  // Header
+  const header = document.createElement('div');
+  header.className = 'call-tree-section-title';
+  header.textContent = T('fieldAccessors') || 'Field Accessors (R/W)';
+  section.appendChild(header);
+
+  // Summary
+  const summary = document.createElement('div');
+  summary.style.cssText = 'padding: 4px 10px; font-size: 11px; color: #aaa;';
+  summary.innerHTML =
+    `<span style="color:#7ee787;">\u25C7 ${T('fieldReaders') || 'Readers'}: ${result.readers.length}</span>` +
+    `<span style="margin: 0 8px; color: #555;">|</span>` +
+    `<span style="color:#f78166;">\u25C6 ${T('fieldWriters') || 'Writers'}: ${result.writers.length}</span>`;
+  section.appendChild(summary);
+
+  function renderAccessorRow(ref, isWrite) {
+    const row = document.createElement('div');
+    row.className = 'trace-step';
+    row.style.cssText = 'display: flex; align-items: center; gap: 4px; padding: 3px 10px; cursor: pointer;';
+
+    // R/W badge
+    const badge = document.createElement('span');
+    badge.style.cssText = `font-size: 9px; font-weight: bold; padding: 1px 5px; border-radius: 3px; ` +
+      (isWrite
+        ? 'background: rgba(247,129,102,0.15); color: #f78166;'
+        : 'background: rgba(126,231,135,0.15); color: #7ee787;');
+    badge.textContent = isWrite ? 'W' : 'R';
+    row.appendChild(badge);
+
+    // Class::method
+    const label = document.createElement('span');
+    label.style.cssText = 'font-size: 11px; color: #ccc;';
+    const shortClass = ref.accessorClass.split('::').pop();
+    const nameMatch = ref.accessorMethod.match(/\b([a-zA-Z_~]\w*)\s*\(/);
+    const shortMethod = nameMatch ? nameMatch[1] + '()' : ref.accessorMethod;
+    label.innerHTML = `<span style="color:#9cdcfe;">${shortClass}</span>` +
+      `<span style="color:#555;">::</span>` +
+      `<span style="color:#dcdcaa;">${shortMethod}</span>`;
+    label.title = ref.accessorMethod; // full signature tooltip
+    row.appendChild(label);
+
+    // Line number
+    if (ref.lineNumber && ref.lineNumber > 0) {
+      const ln = document.createElement('span');
+      ln.style.cssText = 'font-size: 9px; color: #555; margin-left: 4px; cursor: pointer;';
+      ln.textContent = ':' + ref.lineNumber;
+      ln.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (ref.fileLocation) {
+          vscode.postMessage({
+            type: 'methodClick',
+            fileLocation: ref.fileLocation,
+            lineNumber: ref.lineNumber,
+            className: ref.accessorClass,
+            methodSignature: ref.accessorMethod,
+          });
+        }
+      });
+      row.appendChild(ln);
+    }
+
+    // Click row to navigate to the accessor's class
+    row.addEventListener('click', () => {
+      const cn = ref.accessorClass.split('::').pop();
+      if (nodes[cn]) centerOn(cn);
+    });
+
+    return row;
+  }
+
+  // Writers first, then readers
+  const list = document.createElement('div');
+  if (result.writers.length === 0 && result.readers.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'trace-empty-msg';
+    empty.textContent = T('noFieldAccessors') || 'No accessors found for this field.';
+    list.appendChild(empty);
+  } else {
+    result.writers.forEach(ref => list.appendChild(renderAccessorRow(ref, true)));
+    result.readers.forEach(ref => list.appendChild(renderAccessorRow(ref, false)));
+  }
+  section.appendChild(list);
+
+  tracePanelList.appendChild(section);
+  tracePanel.classList.add('visible');
+}
+
+// ============================================================
 //  Canvas ↔ Chat Sync (M26-03)
 // ============================================================
 function _onCanvasNodeSelected(className) {
@@ -3426,6 +3528,9 @@ window.addEventListener('message', ev => {
       break;
     case 'callerTreeResult':
       _showCallerTreeResult(msg);
+      break;
+    case 'fieldAccessorsResult':
+      _showFieldAccessorsResult(msg);
       break;
     case 'callPathExplanation': {
       const explainEl = document.getElementById('call-path-explanation');
@@ -4072,12 +4177,24 @@ function _legacyCreateNodeEl(entry, opts = {}) {
   }
 
   // P10-02: helper — build an attribute row
+  // M28-09: click to show field accessor analysis with R/W
   function buildAttrRow(line) {
     const a = document.createElement('div');
     a.className = 'node-attribute';
-    a.textContent = line; a.title = line;
+    a.textContent = line; a.title = line + '\n' + (T('fieldAccessHint') || 'Click to see who reads/writes this field');
     const m = line.match(/(\w+)\s*(?:=.*)?$/);
-    if (m) a.dataset.member = m[1];
+    if (m) {
+      a.dataset.member = m[1];
+      a.style.cursor = 'pointer';
+      a.addEventListener('click', (e) => {
+        e.stopPropagation();
+        vscode.postMessage({
+          type: 'requestFieldAccessors',
+          className: entry.className,
+          fieldName: m[1],
+        });
+      });
+    }
     return a;
   }
 

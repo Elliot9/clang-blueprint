@@ -13,7 +13,7 @@ import type { ClassEntry, CallStep, ChatMessage, RelevanceMatch, ModuleEntry, Mo
 import type { ExplorationPath } from '../analysis/explorationPath';
 import type { Flow } from '../analysis/flowBuilder';
 import type { CallTreeNode } from '../analysis/callTree';
-import type { CallerTreeNode } from '../analysis/callerIndex';
+import type { CallerTreeNode, FieldAccessResult } from '../analysis/callerIndex';
 
 // ---------------------------------------------------------------------------
 // Active application mode
@@ -191,6 +191,14 @@ export interface MsgCallerTreeResult {
   tree: CallerTreeNode;
 }
 
+/** Field accessor analysis result with R/W breakdown (M28-07) */
+export interface MsgFieldAccessorsResult {
+  type: 'fieldAccessorsResult';
+  className: string;
+  fieldName: string;
+  result: FieldAccessResult;
+}
+
 /** Webview UI language (Traditional Chinese or English) */
 export interface MsgUiLocaleChanged {
   type: 'uiLocaleChanged';
@@ -228,6 +236,7 @@ export type ExtensionToWebview =
   | MsgCallTreeResult
   | MsgCallPathExplanation
   | MsgCallerTreeResult
+  | MsgFieldAccessorsResult
   | MsgUiLocaleChanged
   | MsgChatPopoutInit;
 
@@ -379,6 +388,13 @@ export interface WvRequestCallerTree {
   maxDepth?: number;
 }
 
+/** Request field accessor analysis with R/W (M28-07) */
+export interface WvRequestFieldAccessors {
+  type: 'requestFieldAccessors';
+  className: string;
+  fieldName: string;
+}
+
 /** Canvas selection sync → chat context (M26-03) */
 export interface WvCanvasSelect {
   type: 'canvasSelect';
@@ -413,6 +429,7 @@ export type WebviewToExtension =
   | WvRequestCallTree
   | WvRequestCallPathExplain
   | WvRequestCallerTree
+  | WvRequestFieldAccessors
   | WvCanvasSelect
   | WvSetUiLocale
   | WvOpenChatPopout;

@@ -16,7 +16,7 @@ import type { IAnalysisProvider, ClassEntry, ModuleEntry } from '../shared/types
 import { buildTraceContext, computeImpact } from '../analysis/context';
 import { buildFlow } from '../analysis/flowBuilder';
 import { buildCallTree } from '../analysis/callTree';
-import { buildCallerTree } from '../analysis/callerIndex';
+import { buildCallerTree, queryFieldAccessors } from '../analysis/callerIndex';
 
 export class TraceController implements ModeController {
   private panel: vscode.WebviewPanel | undefined;
@@ -61,6 +61,9 @@ export class TraceController implements ModeController {
         return true;
       case 'requestCallerTree':
         this._handleCallerTree(message.className, message.methodSignature, message.maxDepth);
+        return true;
+      case 'requestFieldAccessors':
+        this._handleFieldAccessors(message.className, message.fieldName);
         return true;
       default:
         return false;
@@ -172,6 +175,17 @@ export class TraceController implements ModeController {
       className,
       methodSignature,
       tree,
+    });
+  }
+
+  private _handleFieldAccessors(className: string, fieldName: string): void {
+    if (!this.panel) { return; }
+    const result = queryFieldAccessors(className, fieldName, this.allEntries);
+    this.panel.webview.postMessage({
+      type: 'fieldAccessorsResult',
+      className,
+      fieldName,
+      result,
     });
   }
 

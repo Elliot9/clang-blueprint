@@ -1,11 +1,12 @@
 /**
- * analysis/callerIndex.ts — M28-01/02
+ * analysis/callerIndex.ts — M28-01/02/07
  *
  * Builds a reverse index from callSequence data so we can answer:
  * "Which methods call ClassName::methodName?"
+ * "Which methods read/write ClassName::fieldName?"
  *
  * The scanner produces per-method callSequence (forward direction).
- * This module inverts that into a caller lookup (reverse direction).
+ * This module inverts that into a caller/accessor lookup (reverse direction).
  */
 
 import type { ClassEntry, CallStep } from '../shared/types';
@@ -26,7 +27,7 @@ export interface CallerRef {
 }
 
 /**
- * Build a reverse index: for every (targetClass, member) pair found in any
+ * Build a reverse index: for every (targetClass, member) **call** found in any
  * callSequence, record who calls it.
  *
  * Key format: "ClassName::methodName" (short names, not full signatures).
@@ -46,7 +47,7 @@ export function buildCallerIndex(entries: ClassEntry[]): Map<string, CallerRef[]
 
       for (const step of method.callSequence) {
         if (step.targetClass === '_meta_') { continue; }
-        if (step.kind === 'field') { continue; } // only track call references
+        if (step.kind === 'field') { continue; } // calls only — fields handled by buildFieldAccessIndex
 
         const targetClass = step.targetClass === '_self_'
           ? entry.className.split('::').pop() ?? entry.className
@@ -71,6 +72,108 @@ export function buildCallerIndex(entries: ClassEntry[]): Map<string, CallerRef[]
   }
 
   return index;
+}
+
+// ---------------------------------------------------------------------------
+// Field access index (M28-07)
+// ---------------------------------------------------------------------------
+
+export interface FieldAccessRef {
+  /** Class that contains the accessor method */
+  accessorClass: string;
+  /** Signature of the accessor method */
+  accessorMethod: string;
+  /** true = write, false = read */
+  isWrite: boolean;
+  /** Line number of the access site */
+  lineNumber?: number;
+  /** File location of the accessor class */
+  fileLocation?: string;
+}
+
+/**
+ * Build a reverse index for field accesses: for every (targetClass, field)
+ * pair in any callSequence where kind === 'field', record who accesses it
+ * and whether it's a read or write.
+ *
+ * Key format: "ClassName::fieldName"
+ */
+export function buildFieldAccessIndex(entries: ClassEntry[]): Map<string, FieldAccessRef[]> {
+  const index = new Map<string, FieldAccessRef[]>();
+
+  for (const entry of entries) {
+    const allMethods = [
+      ...(entry.interfaceMeta ?? []),
+      ...(entry.privateMethods ?? []),
+    ];
+
+    for (const method of allMethods) {
+      if (!method.callSequence || method.callSequence.length === 0) { continue; }
+
+      for (const step of method.callSequence) {
+        if (step.targetClass === '_meta_') { continue; }
+        if (step.kind !== 'field') { continue; } // fields only
+
+        const targetClass = step.targetClass === '_self_'
+          ? entry.className.split('::').pop() ?? entry.className
+          : step.targetClass;
+
+        const key = `${targetClass}::${step.member}`;
+
+        let refs = index.get(key);
+        if (!refs) {
+          refs = [];
+          index.set(key, refs);
+        }
+
+        refs.push({
+          accessorClass: entry.className,
+          accessorMethod: method.signature,
+          isWrite: step.isWrite ?? false,
+          lineNumber: step.lineNumber,
+          fileLocation: entry.fileLocation,
+        });
+      }
+    }
+  }
+
+  return index;
+}
+
+/** Summary of all accessors for a single field, grouped by R/W */
+export interface FieldAccessResult {
+  className: string;
+  fieldName: string;
+  readers: FieldAccessRef[];
+  writers: FieldAccessRef[];
+}
+
+/**
+ * Query the field access index for a specific field.
+ */
+export function queryFieldAccessors(
+  className: string,
+  fieldName: string,
+  entries: ClassEntry[],
+): FieldAccessResult {
+  const index = buildFieldAccessIndex(entries);
+  const shortClass = className.split('::').pop() ?? className;
+
+  const key1 = `${className}::${fieldName}`;
+  const key2 = `${shortClass}::${fieldName}`;
+  const refs = index.get(key1) ?? index.get(key2) ?? [];
+
+  const readers: FieldAccessRef[] = [];
+  const writers: FieldAccessRef[] = [];
+  for (const ref of refs) {
+    if (ref.isWrite) {
+      writers.push(ref);
+    } else {
+      readers.push(ref);
+    }
+  }
+
+  return { className, fieldName, readers, writers };
 }
 
 // ---------------------------------------------------------------------------

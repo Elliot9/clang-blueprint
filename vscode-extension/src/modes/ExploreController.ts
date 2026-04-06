@@ -11,7 +11,7 @@ import type { WebviewToExtension } from '../shared/messages';
 import type { IAnalysisProvider, ClassEntry, ModuleEntry, ModuleEdge, EntryPoint } from '../shared/types';
 import { buildExploreContext } from '../analysis/context';
 import { buildCallTree } from '../analysis/callTree';
-import { buildCallerTree } from '../analysis/callerIndex';
+import { buildCallerTree, queryFieldAccessors } from '../analysis/callerIndex';
 
 function maxClassesForWebview(): number {
   return vscode.workspace.getConfiguration('clangBlueprint').get<number>('maxClassesInDiagram') ?? 100;
@@ -64,6 +64,9 @@ export class ExploreController implements ModeController {
       case 'requestCallerTree':
         this._handleCallerTree(message.className, message.methodSignature, message.maxDepth);
         return true;
+      case 'requestFieldAccessors':
+        this._handleFieldAccessors(message.className, message.fieldName);
+        return true;
       default:
         return false;
     }
@@ -92,6 +95,17 @@ export class ExploreController implements ModeController {
       className,
       methodSignature,
       tree,
+    });
+  }
+
+  private _handleFieldAccessors(className: string, fieldName: string): void {
+    if (!this.panel) { return; }
+    const result = queryFieldAccessors(className, fieldName, this.allEntries);
+    this.panel.webview.postMessage({
+      type: 'fieldAccessorsResult',
+      className,
+      fieldName,
+      result,
     });
   }
 
