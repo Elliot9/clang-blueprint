@@ -16,6 +16,7 @@ import type { IAnalysisProvider, ClassEntry, ModuleEntry } from '../shared/types
 import { buildTraceContext, computeImpact } from '../analysis/context';
 import { buildFlow } from '../analysis/flowBuilder';
 import { buildCallTree } from '../analysis/callTree';
+import { buildCallerTree } from '../analysis/callerIndex';
 
 export class TraceController implements ModeController {
   private panel: vscode.WebviewPanel | undefined;
@@ -57,6 +58,9 @@ export class TraceController implements ModeController {
         return true;
       case 'requestCallPathExplain':
         this._handleCallPathExplain(message.className, message.methodSignature, message.path);
+        return true;
+      case 'requestCallerTree':
+        this._handleCallerTree(message.className, message.methodSignature, message.maxDepth);
         return true;
       default:
         return false;
@@ -152,6 +156,19 @@ export class TraceController implements ModeController {
     const tree = buildCallTree(className, methodName, this.allEntries, maxDepth ?? 10);
     this.panel.webview.postMessage({
       type: 'callTreeResult',
+      className,
+      methodSignature,
+      tree,
+    });
+  }
+
+  private _handleCallerTree(className: string, methodSignature: string, maxDepth?: number): void {
+    if (!this.panel) { return; }
+    const nameMatch = methodSignature.match(/\b([a-zA-Z_~]\w*)\s*\(/);
+    const methodName = nameMatch ? nameMatch[1] : methodSignature;
+    const tree = buildCallerTree(className, methodName, this.allEntries, maxDepth ?? 6);
+    this.panel.webview.postMessage({
+      type: 'callerTreeResult',
       className,
       methodSignature,
       tree,

@@ -5,12 +5,17 @@
  * and feature keyword search.
  */
 
-import type * as vscode from 'vscode';
+import * as vscode from 'vscode';
 import type { ModeController } from '../shell/ModeController';
 import type { WebviewToExtension } from '../shared/messages';
 import type { IAnalysisProvider, ClassEntry, ModuleEntry, ModuleEdge, EntryPoint } from '../shared/types';
 import { buildExploreContext } from '../analysis/context';
 import { buildCallTree } from '../analysis/callTree';
+import { buildCallerTree } from '../analysis/callerIndex';
+
+function maxClassesForWebview(): number {
+  return vscode.workspace.getConfiguration('clangBlueprint').get<number>('maxClassesInDiagram') ?? 100;
+}
 
 export class ExploreController implements ModeController {
   private panel: vscode.WebviewPanel | undefined;
@@ -56,6 +61,9 @@ export class ExploreController implements ModeController {
       case 'requestCallPathExplain':
         this._handleCallPathExplain(message.className, message.methodSignature, message.path);
         return true;
+      case 'requestCallerTree':
+        this._handleCallerTree(message.className, message.methodSignature, message.maxDepth);
+        return true;
       default:
         return false;
     }
@@ -74,6 +82,19 @@ export class ExploreController implements ModeController {
     });
   }
 
+  private _handleCallerTree(className: string, methodSignature: string, maxDepth?: number): void {
+    if (!this.panel) { return; }
+    const nameMatch = methodSignature.match(/\b([a-zA-Z_~]\w*)\s*\(/);
+    const methodName = nameMatch ? nameMatch[1] : methodSignature;
+    const tree = buildCallerTree(className, methodName, this.allEntries, maxDepth ?? 6);
+    this.panel.webview.postMessage({
+      type: 'callerTreeResult',
+      className,
+      methodSignature,
+      tree,
+    });
+  }
+
   private async _handleCallPathExplain(
     className: string,
     _methodSignature: string,
@@ -85,6 +106,7 @@ export class ExploreController implements ModeController {
       return path.some(s => s.targetClass === e.className || s.targetClass === short);
     });
     const explanation = await this.provider.explainChain(path, subgraph);
+    if (!this.panel) { return; }
     this.panel.webview.postMessage({
       type: 'callPathExplanation',
       className,
@@ -99,6 +121,7 @@ export class ExploreController implements ModeController {
     const context = buildExploreContext(entry.namespace ?? '', this.allEntries);
     const summary = await this.provider.summarize(entry, context);
 
+    if (!this.panel) { return; }
     this.panel.webview.postMessage({
       type: 'summaryResult',
       className,
@@ -109,6 +132,7 @@ export class ExploreController implements ModeController {
   private async _handleFeatureQuery(query: string): Promise<void> {
     if (!this.panel) { return; }
     const matches = await this.provider.findRelevant(query, this.allEntries);
+    if (!this.panel) { return; }
     this.panel.webview.postMessage({ type: 'queryResult', query, matches });
   }
 
@@ -126,6 +150,7 @@ export class ExploreController implements ModeController {
     const neighborModules = this.modules.filter(m => neighborNames.has(m.name));
 
     const summary = await this.provider.summarizeModule(mod, this.allEntries, neighborModules);
+    if (!this.panel) { return; }
     this.panel.webview.postMessage({
       type: 'moduleSummaryResult',
       moduleName,
@@ -165,6 +190,16 @@ export class ExploreController implements ModeController {
       modules: this.modules,
       moduleEdges: this.moduleEdges,
       entryPoints: this.entryPoints,
+    });
+    // Webview replaces allEntries on moduleDrillDown with a subset; restore the full
+    // index so namespace tree, feature search, and drilling into another module work again.
+    const entries = this.allEntries;
+    const maxC = maxClassesForWebview();
+    const send = entries.length > 5000 ? entries.slice(0, maxC) : entries;
+    this.panel.webview.postMessage({
+      type: 'indexLoaded',
+      entries: send,
+      totalCount: entries.length,
     });
   }
 }

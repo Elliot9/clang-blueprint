@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-Hant">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -37,6 +37,22 @@
       width: 200px;
     }
     #toolbar input:focus { outline: none; border-color: #007acc; }
+    .toolbar-filter-wrap {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+    }
+    .toolbar-filter-wrap #filter-input { width: 168px; }
+    #btn-filter-clear {
+      min-width: 26px;
+      padding: 2px 6px;
+      font-size: 13px;
+      line-height: 1;
+      color: #aaa;
+      border-color: #555;
+    }
+    #btn-filter-clear:hover { color: #f48771; border-color: #f48771; }
+    #info-bar.filter-active { color: #9cdcfe; }
     #toolbar button {
       background: #3c3c3c;
       border: 1px solid #555;
@@ -89,6 +105,8 @@
 
     #canvas {
       position: absolute;
+      top: 0;
+      left: 0;
       transform-origin: 0 0;
     }
 
@@ -103,6 +121,17 @@
       font-size: 11px;
       user-select: none;
       transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    /* Expanded cards need more width than the default 280px cap */
+    .class-node.node-card-expanded {
+      max-width: min(560px, 92vw);
+    }
+    .class-node.node-card-expanded .node-class-name,
+    .class-node.node-card-expanded .node-responsibility {
+      white-space: normal;
+      overflow: visible;
+      text-overflow: unset;
+      word-break: break-word;
     }
     /* P7-02: when user has manually resized, lift max-width and wrap text */
     .class-node.resized {
@@ -399,6 +428,7 @@
     .call-tree-icon.ct-read { color: #7ee787; }
     .call-tree-icon.ct-write { color: #f78166; }
     .call-tree-icon.ct-construct { color: #d4a0ff; }
+    .call-tree-icon.ct-caller { color: #f0a851; }
     .call-tree-class { color: #9cdcfe; cursor: pointer; }
     .call-tree-class:hover { text-decoration: underline; }
     .call-tree-class.ct-self { color: #4ec9b0; font-style: italic; }
@@ -566,8 +596,12 @@
       position: absolute;
       border: 1px solid #007acc;
       background: rgba(0,122,204,0.1);
-      pointer-events: none;
+      pointer-events: auto;
+      cursor: grab;
+      z-index: 2;
+      box-sizing: border-box;
     }
+    #minimap-viewport.minimap-dragging { cursor: grabbing; }
 
     /* ── Detail panel ── */
     #detail-panel {
@@ -721,19 +755,41 @@
       font-size: 10px;
       color: #666;
     }
-    .module-breadcrumb {
-      font-size: 11px;
-      color: #888;
-      margin-bottom: 12px;
+    /* Fixed bar when drilled into a module — NOT inside #module-overview (that panel is hidden). */
+    #module-scope-bar {
       display: none;
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      z-index: 20;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      padding: 6px 12px;
+      background: #252526;
+      border-bottom: 1px solid #3c3c3c;
+      font-size: 11px;
+      color: #aaa;
     }
-    .module-breadcrumb.visible { display: block; }
-    .module-breadcrumb a {
+    #module-scope-bar.visible { display: flex; }
+    #module-scope-bar a {
       color: #4fc3f7;
       cursor: pointer;
       text-decoration: none;
     }
-    .module-breadcrumb a:hover { text-decoration: underline; }
+    #module-scope-bar a:hover { text-decoration: underline; }
+    #module-scope-bar select {
+      min-width: 160px;
+      max-width: min(320px, 40vw);
+      font-size: 11px;
+      background: #3c3c3c;
+      color: #d4d4d4;
+      border: 1px solid #555;
+      border-radius: 3px;
+      padding: 3px 8px;
+    }
+    #canvas-container.has-module-scope #canvas {
+      top: 38px;
+    }
 
     /* ── Suggestion Chips (P24) ── */
     #suggestion-bar {
@@ -818,7 +874,56 @@
       font-size: 11px;
       transition: width 0.15s ease;
     }
-    #left-panel.open { width: 240px; overflow-y: auto; }
+    #left-panel.open:not(.collapsed) {
+      width: 240px;
+      overflow-y: auto;
+    }
+    #left-panel.collapsed {
+      width: 0 !important;
+      min-width: 0 !important;
+      border: none !important;
+      overflow: hidden !important;
+    }
+    #left-panel.collapsed #left-panel-content { visibility: hidden; }
+    #btn-left-panel-collapse {
+      display: none;
+      position: absolute;
+      top: 8px;
+      right: 6px;
+      z-index: 26;
+      min-width: 24px;
+      padding: 2px 6px;
+      font-size: 14px;
+      line-height: 1;
+      background: #3c3c3c;
+      border: 1px solid #555;
+      color: #ccc;
+      border-radius: 3px;
+      cursor: pointer;
+    }
+    #btn-left-panel-collapse:hover { border-color: #007acc; color: #fff; }
+    #left-panel.open:not(.collapsed) #btn-left-panel-collapse { display: block; }
+    #left-panel-dock-tab {
+      display: none;
+      position: fixed;
+      left: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 40;
+      width: 22px;
+      padding: 10px 0;
+      font-size: 11px;
+      line-height: 1.2;
+      writing-mode: vertical-rl;
+      text-orientation: mixed;
+      background: #2d2d30;
+      color: #9cdcfe;
+      border: 1px solid #3c3c3c;
+      border-left: none;
+      border-radius: 0 4px 4px 0;
+      cursor: pointer;
+    }
+    #left-panel-dock-tab:hover { background: #3c3c3c; }
 
     /* ── Right Panel (populated by F3/G2/H1) ── */
     #right-panel {
@@ -834,7 +939,134 @@
       font-size: 11px;
       transition: width 0.15s ease;
     }
-    #right-panel.open { width: 290px; overflow-y: auto; }
+    #right-panel.open:not(.collapsed) {
+      width: var(--bp-right-w, 290px);
+      overflow: hidden;
+    }
+    #right-panel.collapsed {
+      width: 0 !important;
+      min-width: 0 !important;
+      border: none !important;
+      overflow: hidden !important;
+    }
+    #right-panel.collapsed #right-panel-content { visibility: hidden; }
+    #right-panel-resizer {
+      display: none;
+      position: fixed;
+      top: 40px;
+      bottom: 0;
+      width: 6px;
+      margin-right: -3px;
+      z-index: 35;
+      cursor: col-resize;
+      background: transparent;
+    }
+    #right-panel-resizer:hover { background: rgba(0, 122, 204, 0.22); }
+    #right-panel-dock-tab {
+      display: none;
+      position: fixed;
+      right: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 40;
+      width: 22px;
+      padding: 10px 0;
+      font-size: 11px;
+      line-height: 1.2;
+      writing-mode: vertical-rl;
+      text-orientation: mixed;
+      background: #2d2d30;
+      color: #9cdcfe;
+      border: 1px solid #3c3c3c;
+      border-right: none;
+      border-radius: 4px 0 0 4px;
+      cursor: pointer;
+    }
+    #right-panel-dock-tab:hover { background: #3c3c3c; }
+    .chat-panel-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 8px 12px;
+      font-weight: 600;
+      font-size: 11px;
+      color: #9cdcfe;
+      border-bottom: 1px solid #3c3c3c;
+      flex-shrink: 0;
+      background: #252526;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+    .chat-panel-toolbar .chat-toolbar-actions {
+      display: flex;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+    .chat-panel-toolbar button.icon-btn {
+      min-width: 26px;
+      padding: 2px 6px;
+      font-size: 12px;
+      line-height: 1.2;
+      background: #3c3c3c;
+      border: 1px solid #555;
+      color: #ccc;
+      border-radius: 3px;
+      cursor: pointer;
+    }
+    .chat-panel-toolbar button.icon-btn:hover { border-color: #007acc; color: #fff; }
+    #chat-popout-ctx-strip {
+      display: none;
+      flex-wrap: wrap;
+      gap: 4px;
+      align-items: center;
+      padding: 6px 10px;
+      font-size: 10px;
+      color: #888;
+      border-bottom: 1px solid #2a2a2a;
+      background: #1a1a1c;
+    }
+    body.chat-popout #toolbar,
+    body.chat-popout #left-panel-dock-tab,
+    body.chat-popout #left-panel,
+    body.chat-popout #canvas-container,
+    body.chat-popout #minimap,
+    body.chat-popout #suggestion-bar,
+    body.chat-popout #module-overview,
+    body.chat-popout #module-scope-bar,
+    body.chat-popout #trace-panel,
+    body.chat-popout #rubber-band,
+    body.chat-popout #right-panel-resizer,
+    body.chat-popout #right-panel-dock-tab {
+      display: none !important;
+    }
+    body.chat-popout #right-panel {
+      top: 0 !important;
+      left: 0 !important;
+      right: 0 !important;
+      width: 100% !important;
+      max-width: 100% !important;
+      border: none !important;
+    }
+    body.chat-popout #right-panel.open:not(.collapsed) {
+      width: 100% !important;
+    }
+    /* Keep inner shell so module summary / flow never replace the whole panel node */
+    #right-panel-content {
+      display: flex;
+      flex-direction: column;
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-x: hidden;
+      overflow-y: auto;
+    }
+    #explore-summary {
+      flex: 1 1 auto;
+      min-height: 120px;
+      overflow-x: hidden;
+      overflow-y: auto;
+    }
 
     .panel-header {
       padding: 8px 12px;
@@ -973,6 +1205,17 @@
     .impact-class:hover { color: #4fc3f7; }
     .impact-class.indirect { color: #888; }
     .impact-class.indirect:hover { color: #d4d4d4; }
+    .trace-focal-hint {
+      font-size: 10px;
+      line-height: 1.35;
+      color: #888;
+      margin: 0 0 6px 0;
+      padding: 4px 8px;
+      background: #2a2d2e;
+      border-radius: 3px;
+      border-left: 3px solid #007acc;
+    }
+    .trace-focal-hint.empty { border-left-color: #555; color: #666; }
     /* ── Chat Mode (H1 / H2) ── */
     .chat-context-list { list-style: none; margin: 0; padding: 4px 0; }
     .chat-context-item {
@@ -992,9 +1235,13 @@
     }
     .chat-add-btn:hover { background: #37373d; border-color: #007acc; }
     #chat-output {
-      flex: 1; overflow-y: auto; padding: 8px 10px;
-      display: flex; flex-direction: column; gap: 8px;
+      flex: 1;
       min-height: 0;
+      overflow-y: auto;
+      padding: 8px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
     }
     .chat-msg {
       padding: 7px 10px; border-radius: 4px;
@@ -1024,7 +1271,10 @@
     #chat-send-btn:disabled { background: #444; cursor: default; }
     .chat-spinner { color: #555; font-size: 10px; padding: 4px 10px; }
     #chat-panel-right {
-      display: flex; flex-direction: column; height: 100%;
+      display: flex;
+      flex-direction: column;
+      flex: 1 1 auto;
+      min-height: 0;
     }
     /* ── H3: Code Suggestion blocks ── */
     .chat-code-block {
@@ -1111,47 +1361,67 @@
 <!-- Toolbar -->
 <div id="toolbar">
   <div id="mode-bar">
-    <button class="mode-btn mode-active" data-mode="explore" title="Explore: understand codebase structure">Explore</button>
-    <button class="mode-btn" data-mode="trace" title="Trace: follow call chains and impact">Trace</button>
-    <button class="mode-btn" data-mode="chat" title="Chat: AI-powered code discussion">Chat</button>
+    <button type="button" class="mode-btn mode-active" data-mode="explore" data-i18n="modeExplore" data-i18n-title="modeExploreTitle">Explore</button>
+    <button type="button" class="mode-btn" data-mode="trace" data-i18n="modeTrace" data-i18n-title="modeTraceTitle">Trace</button>
+    <button type="button" class="mode-btn" data-mode="chat" data-i18n="modeChat" data-i18n-title="modeChatTitle">Chat</button>
   </div>
-  <button id="btn-fit"   title="Fit all nodes in view">Fit</button>
-  <button id="btn-reset" title="Reset zoom to 100%">100%</button>
-  <input  id="filter-input" type="text" placeholder="Search classes…" title="Regex filter by class name" />
-  <button id="btn-expand-all"  title="Expand all nodes">Expand All</button>
-  <button id="btn-collapse-all" title="Collapse all nodes">Collapse All</button>
-  <button id="btn-layout-tb"  class="active" title="Top-to-bottom layout">TB</button>
-  <button id="btn-layout-lr"  title="Left-to-right layout">LR</button>
-  <button id="btn-undo" title="Undo last neighbor expansion (Ctrl+Z)" disabled>↩ Undo</button>
-  <button id="btn-select" title="Rubber-band select mode — drag to select, Del to hide (shortcut: S)">⬚ Select</button>
-  <button id="btn-show-hidden" title="Restore all hidden nodes" style="display:none;color:#f5a623;border-color:#f5a623;">Show Hidden (0)</button>
-  <button id="btn-cluster" title="Toggle Namespace Cluster View (F2)">⬡ Cluster</button>
+  <button type="button" id="btn-fit" data-i18n="toolbarFit" data-i18n-title="toolbarFitTitle">Fit</button>
+  <button type="button" id="btn-reset" data-i18n="toolbarReset" data-i18n-title="toolbarResetTitle">100%</button>
+  <div class="toolbar-filter-wrap">
+    <input id="filter-input" type="text" placeholder="Search classes…" title="Regex filter by class name" data-i18n-placeholder="toolbarFilterPh" data-i18n-title="toolbarFilterTitle" autocomplete="off" />
+    <button type="button" id="btn-filter-clear" style="display:none" data-i18n-title="toolbarFilterClearTitle" aria-label="Clear">✕</button>
+  </div>
+  <button type="button" id="btn-relayout" data-i18n="toolbarRelayout" data-i18n-title="toolbarRelayoutTitle">Relayout</button>
+  <button type="button" id="btn-expand-all" data-i18n="toolbarExpandAll" data-i18n-title="toolbarExpandAllTitle">Expand All</button>
+  <button type="button" id="btn-collapse-all" data-i18n="toolbarCollapseAll" data-i18n-title="toolbarCollapseAllTitle">Collapse All</button>
+  <button type="button" id="btn-layout-tb" class="active" data-i18n="toolbarLayoutTB" data-i18n-title="toolbarLayoutTBTitle">TB</button>
+  <button type="button" id="btn-layout-lr" data-i18n="toolbarLayoutLR" data-i18n-title="toolbarLayoutLRTitle">LR</button>
+  <button type="button" id="btn-undo" data-i18n="toolbarUndo" data-i18n-title="toolbarUndoTitle" disabled>↩ Undo</button>
+  <button type="button" id="btn-select" data-i18n="toolbarSelect" data-i18n-title="toolbarSelectTitle">⬚ Select</button>
+  <button type="button" id="btn-show-hidden" data-i18n-title="toolbarShowHiddenTitle" style="display:none;color:#f5a623;border-color:#f5a623;">Show Hidden (0)</button>
+  <button type="button" id="btn-cluster" data-i18n="toolbarCluster" data-i18n-title="toolbarClusterTitle">⬡ Cluster</button>
   <div class="export-wrap">
-    <button id="btn-export" title="Export / Copy diagram">Export ▾</button>
+    <button type="button" id="btn-export" data-i18n="toolbarExport" data-i18n-title="toolbarExportTitle">Export ▾</button>
     <div id="export-menu">
-      <div class="export-item" id="export-mermaid">Copy Mermaid Syntax</div>
-      <div class="export-item" id="export-svg">Download SVG</div>
+      <div class="export-item" id="export-mermaid" data-i18n="toolbarExportMermaid">Copy Mermaid Syntax</div>
+      <div class="export-item" id="export-svg" data-i18n="toolbarExportSvg">Download SVG</div>
     </div>
   </div>
+  <select id="locale-select" data-i18n-title="localeTitle" aria-label="Language" style="font-size:11px;background:#3c3c3c;color:#d4d4d4;border:1px solid #555;border-radius:3px;padding:2px 6px;cursor:pointer;">
+    <option value="zh-TW">繁體中文</option>
+    <option value="en">English</option>
+  </select>
   <div id="info-bar">0 classes</div>
 </div>
 
 <!-- Left Panel -->
-<div id="left-panel"><div id="left-panel-content"></div></div>
+<div id="left-panel">
+  <button type="button" id="btn-left-panel-collapse" data-i18n-title="panelLeftCollapseTitle" aria-label="Collapse">⟩</button>
+  <div id="left-panel-content"></div>
+</div>
+<button type="button" id="left-panel-dock-tab" data-i18n-title="panelLeftExpandTitle" aria-label="Expand">📂</button>
 
 <!-- Right Panel -->
 <div id="right-panel"><div id="right-panel-content"></div></div>
+<div id="right-panel-resizer" aria-hidden="true" data-i18n-title="chatResizeTitle"></div>
+<button type="button" id="right-panel-dock-tab" data-i18n-title="chatDockExpandTitle" aria-label="Expand">💬</button>
 
 <!-- Canvas -->
 <div id="canvas-container">
   <div id="rubber-band"></div>
+  <div id="module-scope-bar" aria-label="Module navigation">
+    <a href="#" id="scope-back-overview" data-i18n="moduleBreadcrumbOverview">Overview</a>
+    <span style="color:#555;user-select:none">|</span>
+    <label id="module-scope-label" for="module-scope-select"><span data-i18n="moduleScopeSwitch">Switch module</span></label>
+    <select id="module-scope-select" title=""></select>
+  </div>
   <div id="module-overview"></div>
   <div id="canvas">
     <svg id="edges-svg"></svg>
   </div>
   <div id="empty-state">
-    <h2>Clang Blueprint</h2>
-    <p>Run <strong>Blueprint: Rebuild Index</strong> to scan your C++ project,<br>
+    <h2 data-i18n="emptyTitle">Clang Blueprint</h2>
+    <p data-i18n-html="emptyBodyHtml">Run <strong>Blueprint: Rebuild Index</strong> to scan your C++ project,<br>
        then <strong>Blueprint: Show Class Diagram</strong> to visualise.</p>
   </div>
 </div>
@@ -1170,37 +1440,37 @@
 
 <!-- Context menu -->
 <div id="ctx-menu">
-  <div class="ctx-item" id="ctx-jump">Jump to Source</div>
-  <div class="ctx-item" id="ctx-focus">Focus Neighborhood</div>
-  <div class="ctx-item" id="ctx-upstream">Highlight Upstream</div>
-  <div class="ctx-item" id="ctx-downstream">Highlight Downstream</div>
-  <div class="ctx-item sep" id="ctx-explore-here">Start Exploring Here</div>
-  <div class="ctx-item" id="ctx-clear">Clear Highlight</div>
+  <div class="ctx-item" id="ctx-jump" data-i18n="ctxJump">Jump to Source</div>
+  <div class="ctx-item" id="ctx-focus" data-i18n="ctxFocus">Focus Neighborhood</div>
+  <div class="ctx-item" id="ctx-upstream" data-i18n="ctxUpstream">Highlight Upstream</div>
+  <div class="ctx-item" id="ctx-downstream" data-i18n="ctxDownstream">Highlight Downstream</div>
+  <div class="ctx-item sep" id="ctx-explore-here" data-i18n="ctxExploreHere">Start Exploring Here</div>
+  <div class="ctx-item" id="ctx-clear" data-i18n="ctxClear">Clear Highlight</div>
 </div>
 
 <!-- P11-02: Trace Panel -->
 <div id="trace-panel">
   <div id="trace-panel-header">
-    <span id="trace-panel-title">Trace</span>
-    <span id="trace-panel-close" title="Close (Esc)">✕</span>
+    <span id="trace-panel-title" data-i18n="tracePanelTitle">Trace</span>
+    <span id="trace-panel-close" data-i18n-title="traceCloseTitle" title="Close (Esc)">✕</span>
   </div>
   <div id="trace-panel-list"></div>
   <div class="trace-legend">
-    <div class="legend-item"><div class="legend-dot" style="background:#4fc3f7"></div>call</div>
-    <div class="legend-item"><div class="legend-dot" style="background:#6dbf67"></div>read</div>
-    <div class="legend-item"><div class="legend-dot" style="background:#ff8c00"></div>write</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#4fc3f7"></div><span data-i18n="legendCall">call</span></div>
+    <div class="legend-item"><div class="legend-dot" style="background:#6dbf67"></div><span data-i18n="legendRead">read</span></div>
+    <div class="legend-item"><div class="legend-dot" style="background:#ff8c00"></div><span data-i18n="legendWrite">write</span></div>
   </div>
 </div>
 
 <!-- Detail panel -->
 <div id="detail-panel">
   <div class="detail-title" id="detail-class">—</div>
-  <div class="detail-row">File: <span id="detail-file">—</span></div>
-  <div class="detail-row">Line: <span id="detail-line">—</span></div>
-  <div class="detail-row">Namespace: <span id="detail-ns">—</span></div>
-  <div class="detail-row">Responsibility: <span id="detail-resp">—</span></div>
+  <div class="detail-row"><span data-i18n="detailFile">File:</span> <span id="detail-file">—</span></div>
+  <div class="detail-row"><span data-i18n="detailLine">Line:</span> <span id="detail-line">—</span></div>
+  <div class="detail-row"><span data-i18n="detailNamespace">Namespace:</span> <span id="detail-ns">—</span></div>
+  <div class="detail-row"><span data-i18n="detailResponsibility">Responsibility:</span> <span id="detail-resp">—</span></div>
   <div id="detail-jump">
-    <button id="btn-jump" style="width:100%;margin-top:4px;">Jump to Source</button>
+    <button type="button" id="btn-jump" style="width:100%;margin-top:4px;" data-i18n="detailJump">Jump to Source</button>
   </div>
 </div>
 
@@ -1226,6 +1496,51 @@
 // ============================================================
 const vscode = acquireVsCodeApi();
 
+/** Standalone AI Chat editor tab (same extension, slim layout). */
+const IS_CHAT_POPOUT = typeof window !== 'undefined' && !!window.__BLUEPRINT_CHAT_POPOUT__;
+if (IS_CHAT_POPOUT) {
+  document.addEventListener('DOMContentLoaded', () => document.body.classList.add('chat-popout'));
+}
+
+// ── UI locale (bundle + default injected by extension from clangBlueprint.uiLocale) ──
+let uiLocale = (typeof window !== 'undefined' && window.__BLUEPRINT_UI_LOCALE__) || 'zh-TW';
+let _lastInfoBar = { visible: 0, matched: 0, total: 0 };
+
+function T(key, vars) {
+  const tables = typeof window !== 'undefined' ? window.BLUEPRINT_I18N : {};
+  const bag = (tables[uiLocale] || tables['zh-TW']) || {};
+  let s = bag[key];
+  if (s === undefined && tables.en) { s = tables.en[key]; }
+  if (s === undefined) { s = key; }
+  if (vars && typeof s === 'string') {
+    Object.keys(vars).forEach(k => { s = s.split(`{${k}}`).join(String(vars[k])); });
+  }
+  return s;
+}
+
+function applyChromeI18n() {
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const k = el.getAttribute('data-i18n');
+    if (k) el.textContent = T(k);
+  });
+  document.querySelectorAll('[data-i18n-html]').forEach(el => {
+    const k = el.getAttribute('data-i18n-html');
+    if (k) el.innerHTML = T(k);
+  });
+  document.querySelectorAll('[data-i18n-title]').forEach(el => {
+    const k = el.getAttribute('data-i18n-title');
+    if (k) el.title = T(k);
+  });
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+    const k = el.getAttribute('data-i18n-placeholder');
+    if (k) el.placeholder = T(k);
+  });
+  updateShowHiddenBtn();
+  updateFilterChrome();
+  updateTraceImpactFocalHint();
+  updateInfoBar(_lastInfoBar.visible, _lastInfoBar.matched, _lastInfoBar.total);
+}
+
 let allEntries    = [];
 let totalCount    = 0;
 let nodes         = {};   // className → {el, x, y, w, h, entry}
@@ -1234,12 +1549,53 @@ let filterRegex   = null;
 let layoutDir     = 'TB';
 const VIEW_LIMIT  = 150;
 
+// ── Right sidebar (AI / summary): width, collapse, drag resize ──
+const LS_RIGHT_W = 'blueprint_right_panel_w';
+const LS_RIGHT_COLLAPSE = 'blueprint_right_panel_collapsed';
+const LS_LEFT_COLLAPSE = 'blueprint_left_panel_collapsed';
+const LEFT_PANEL_WIDTH_PX = 240;
+let rightPanelWidthPx = 290;
+let rightPanelCollapsed = false;
+let leftPanelCollapsed = false;
+try {
+  const rw = localStorage.getItem(LS_RIGHT_W);
+  if (rw) {
+    const n = parseInt(rw, 10);
+    if (n >= 220 && n <= 720) { rightPanelWidthPx = n; }
+  }
+  rightPanelCollapsed = localStorage.getItem(LS_RIGHT_COLLAPSE) === '1';
+  leftPanelCollapsed = localStorage.getItem(LS_LEFT_COLLAPSE) === '1';
+} catch (_) { /* webview storage */ }
+
 // UI-02: persisted node positions (survive re-render)
 const nodePositions = {};   // className → {x, y}
 // P7-03: persisted node widths (survive re-render)
 const nodeWidths = {};      // className → width (px number)
 // UI-03: collapsed state
 const collapsedNodes = new Set();
+
+/** Filter / namespace / trace 改變可見子圖時，同步工具列篩選狀態（清除鈕、資訊列樣式）。 */
+function updateFilterChrome() {
+  const clr = document.getElementById('btn-filter-clear');
+  const ib = document.getElementById('info-bar');
+  const active = !!(filterRegex || traceSubgraph !== null);
+  if (clr) clr.style.display = active ? 'inline-block' : 'none';
+  if (ib) ib.classList.toggle('filter-active', active);
+}
+
+/**
+ * 依目前篩選／追蹤子圖重算節點座標（不保留手動拖曳位置）。
+ * 用於搜尋後子圖變小仍沿用大圖座標導致節點過散之問題。
+ */
+function invalidatePositionsForCurrentView() {
+  const vis = getVisibleEntries();
+  vis.forEach(e => { delete nodePositions[e.className]; });
+}
+
+function relayoutDiagram() {
+  Object.keys(nodePositions).forEach(k => delete nodePositions[k]);
+  renderAll();
+}
 
 // Module overview state (P22)
 let moduleData = null;   // { modules, moduleEdges, entryPoints, projectName }
@@ -1252,6 +1608,9 @@ let keyFlowsData = [];          // Flow[] from discoverKeyFlows
 // Pan/zoom (canvas level)
 let panX = 0, panY = 0, scale = 1;
 let isPanning = false, panStartX = 0, panStartY = 0, panOriginX = 0, panOriginY = 0;
+/** Latest minimap world→pixel mapping (for dragging the viewport rect) */
+let minimapGeo = null;
+let minimapDrag = null; // { dwx, dwy } world offset from grab point to view top-left
 
 // ── Rubber-band select & hide ──────────────────────────────────
 let isSelectMode  = false;
@@ -1264,7 +1623,7 @@ function updateShowHiddenBtn() {
   const btn = document.getElementById('btn-show-hidden');
   if (hiddenNodes.size > 0) {
     btn.style.display = '';
-    btn.textContent = `Show Hidden (${hiddenNodes.size})`;
+    btn.textContent = T('toolbarShowHiddenCount', { n: hiddenNodes.size });
   } else {
     btn.style.display = 'none';
   }
@@ -1345,15 +1704,21 @@ function switchMode(mode) {
 
   // Module overview: show when entering explore mode with module data, hide otherwise
   if (mode === 'explore' && moduleData && moduleData.modules.length > 0 && !drilledModule) {
+    hideModuleScopeBar();
     renderModuleOverview();
   } else {
     document.getElementById('module-overview').classList.remove('visible');
     document.getElementById('canvas').style.display = '';
     moduleViewActive = false;
+    if (mode === 'explore' && drilledModule && moduleData && moduleData.modules.length > 0) {
+      showModuleScopeBar(drilledModule);
+    } else {
+      hideModuleScopeBar();
+    }
   }
 
   _renderSidePanels(mode);
-  vscode.postMessage({ type: 'modeSwitch', mode });
+  if (!IS_CHAT_POPOUT) vscode.postMessage({ type: 'modeSwitch', mode });
 }
 
 // ── Mode panel state ──────────────────────────────────────────
@@ -1366,9 +1731,24 @@ function _esc(s) {
     ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
+/**
+ * Module summary / flow UI used to set right-panel.innerHTML, which destroyed
+ * #right-panel-content and broke Chat (and panel rebuilds). Always write into
+ * the inner wrapper only; recreate it if missing.
+ */
+function ensureRightPanelContent() {
+  const rp = document.getElementById('right-panel');
+  let rc = document.getElementById('right-panel-content');
+  if (!rc && rp) {
+    rp.innerHTML = '<div id="right-panel-content"></div>';
+    rc = document.getElementById('right-panel-content');
+  }
+  return rc;
+}
+
 function _renderSidePanels(mode) {
   const lc = document.getElementById('left-panel-content');
-  const rc = document.getElementById('right-panel-content');
+  const rc = ensureRightPanelContent();
 
   if (mode === 'explore') {
     _buildExploreLeft(lc);
@@ -1381,20 +1761,27 @@ function _renderSidePanels(mode) {
     _buildChatRight(rc);
   }
 
-  if (mode !== 'trace') { traceSubgraph = null; renderAll(); }
+  if (mode !== 'trace') {
+    const hadTraceSubgraph = traceSubgraph !== null;
+    traceSubgraph = null;
+    if (hadTraceSubgraph) Object.keys(nodePositions).forEach(k => delete nodePositions[k]);
+    if (!IS_CHAT_POPOUT) renderAll();
+  }
 
-  document.getElementById('left-panel').classList.add('open');
-  document.getElementById('right-panel').classList.add('open');
-  _adjustCanvasMargins();
+  if (mode === 'chat') {
+    document.getElementById('detail-panel').classList.remove('visible');
+  }
+  applyChromeI18n();
+  applySidePanelsLayout();
 }
 
 // ── Explore: Left Panel (F1 + F4) ─────────────────────────────
 function _buildExploreLeft(container) {
   container.innerHTML = `
-    <div class="panel-header">Explore</div>
+    <div class="panel-header">${_esc(T('explorePanel'))}</div>
     <div class="panel-search">
-      <input id="explore-keyword" type="text" placeholder="Feature keyword…" />
-      <button id="explore-search-btn" title="Find relevant classes">⌕</button>
+      <input id="explore-keyword" type="text" placeholder="${_esc(T('exploreKeywordPh'))}" />
+      <button type="button" id="explore-search-btn" title="${_esc(T('exploreSearchTitle'))}">⌕</button>
     </div>
     <div id="explore-ns-tree" class="ns-tree"></div>`;
   document.getElementById('explore-search-btn').addEventListener('click', _doFeatureSearch);
@@ -1413,7 +1800,7 @@ function _doFeatureSearch() {
 function _refreshNamespaceTree() {
   const tree = document.getElementById('explore-ns-tree');
   if (!tree) return;
-  if (!allEntries.length) { tree.innerHTML = '<div class="panel-placeholder">No entries loaded</div>'; return; }
+  if (!allEntries.length) { tree.innerHTML = `<div class="panel-placeholder">${_esc(T('exploreNoEntries'))}</div>`; return; }
 
   const groups = {};
   allEntries.forEach(e => {
@@ -1458,7 +1845,7 @@ function _nsClassClick(className) {
   setTimeout(() => { centerOn(className); selectNode(className); }, 60);
   if (activeMode === 'explore') {
     const summEl = document.getElementById('explore-summary');
-    if (summEl) { summEl.className = 'summary-spinner'; summEl.textContent = 'Loading…'; }
+    if (summEl) { summEl.className = 'summary-spinner'; summEl.textContent = T('exploreLoading'); }
     vscode.postMessage({ type: 'requestSummary', className });
   }
 }
@@ -1466,8 +1853,15 @@ function _nsClassClick(className) {
 // ── Explore: Right Panel (F3) ─────────────────────────────────
 function _buildExploreRight(container) {
   container.innerHTML = `
-    <div class="panel-header">AI Summary</div>
-    <div id="explore-summary" class="summary-spinner">Select a class to see its AI-generated summary</div>`;
+    <div class="chat-panel-toolbar">
+      <span>${_esc(T('aiSummary'))}</span>
+      <div class="chat-toolbar-actions">
+        <button type="button" class="icon-btn" id="btn-explore-right-collapse" data-i18n-title="chatSidebarCollapseTitle">⟨</button>
+      </div>
+    </div>
+    <div id="explore-summary" class="summary-spinner">${_esc(T('exploreSelectClass'))}</div>`;
+  const btn = document.getElementById('btn-explore-right-collapse');
+  if (btn) btn.addEventListener('click', () => _toggleRightPanelCollapsed());
 }
 
 function _showSummary(msg) {
@@ -1481,45 +1875,45 @@ function _showSummary(msg) {
   el.className = '';
   el.innerHTML = `
     <div class="summary-intent">${intent}</div>
-    ${resps ? `<div class="summary-section"><div class="summary-section-title">Methods</div>${resps}</div>` : ''}
-    ${msg.usedBy?.length  ? `<div class="summary-section"><div class="summary-section-title">Used by</div><div class="summary-item">${mkLinks(msg.usedBy)}</div></div>` : ''}
-    ${msg.dependsOn?.length ? `<div class="summary-section"><div class="summary-section-title">Depends on</div><div class="summary-item">${mkLinks(msg.dependsOn)}</div></div>` : ''}`;
+    ${resps ? `<div class="summary-section"><div class="summary-section-title">${_esc(T('summaryMethods'))}</div>${resps}</div>` : ''}
+    ${msg.usedBy?.length  ? `<div class="summary-section"><div class="summary-section-title">${_esc(T('summaryUsedBy'))}</div><div class="summary-item">${mkLinks(msg.usedBy)}</div></div>` : ''}
+    ${msg.dependsOn?.length ? `<div class="summary-section"><div class="summary-section-title">${_esc(T('summaryDependsOn'))}</div><div class="summary-item">${mkLinks(msg.dependsOn)}</div></div>` : ''}`;
 }
 
 // ── Trace: Left Panel (G1 + G4) ───────────────────────────────
 function _buildTraceLeft(container) {
   const opts = allEntries.map(e => `<option value="${_esc(e.className)}">`).join('');
   container.innerHTML = `
-    <div class="panel-header">Trace</div>
+    <div class="panel-header">${_esc(T('tracePanelTitle'))}</div>
     <div class="trace-ctrl">
-      <label>Focal Class</label>
-      <input id="trace-cls-inp" list="trace-cls-list" type="text" placeholder="Class name…" />
+      <label>${_esc(T('traceFocalClass'))}</label>
+      <input id="trace-cls-inp" list="trace-cls-list" type="text" placeholder="${_esc(T('traceClassNamePh'))}" />
       <datalist id="trace-cls-list">${opts}</datalist>
     </div>
     <div class="trace-ctrl">
-      <label>Method <span style="color:#555">(optional)</span></label>
-      <select id="trace-mth-sel"><option value="">— any —</option></select>
+      <label>${_esc(T('traceMethod'))} <span style="color:#555">${_esc(T('traceMethodOptional'))}</span></label>
+      <select id="trace-mth-sel"><option value="">${_esc(T('traceMethodAny'))}</option></select>
     </div>
     <div class="trace-ctrl">
-      <label>N-hop depth</label>
+      <label>${_esc(T('traceNHop'))}</label>
       <div class="trace-hop-row">
         <input type="range" id="trace-hop-sl" min="1" max="3" value="1" />
         <span class="trace-hop-val" id="trace-hop-v">1</span>
       </div>
     </div>
-    <button class="trace-btn" id="trace-go-btn">Trace →</button>
-    <div class="panel-section-title">Error Log Anchor</div>
+    <button type="button" class="trace-btn" id="trace-go-btn">${_esc(T('traceGo'))}</button>
+    <div class="panel-section-title">${_esc(T('traceErrSection'))}</div>
     <div class="trace-ctrl">
-      <label>Paste error log / stack trace</label>
-      <textarea class="error-log-area" id="trace-err-log" rows="4" placeholder="Paste error output here…"></textarea>
+      <label>${_esc(T('traceErrPasteLabel'))}</label>
+      <textarea class="error-log-area" id="trace-err-log" rows="4" placeholder="${_esc(T('traceErrPh'))}"></textarea>
     </div>
-    <button class="trace-btn" id="trace-loc-btn">Locate →</button>
-    <div class="panel-section-title">Flow Query (M25-04)</div>
+    <button type="button" class="trace-btn" id="trace-loc-btn">${_esc(T('traceLocate'))}</button>
+    <div class="panel-section-title">${_esc(T('traceFlowSection'))}</div>
     <div class="trace-ctrl">
-      <label>Describe the flow you're looking for</label>
-      <input id="trace-flow-inp" type="text" placeholder="e.g. how does a write request flow?" />
+      <label>${_esc(T('traceFlowLabel'))}</label>
+      <input id="trace-flow-inp" type="text" placeholder="${_esc(T('traceFlowPh'))}" />
     </div>
-    <button class="trace-btn" id="trace-flow-btn">Find Flows →</button>`;
+    <button type="button" class="trace-btn" id="trace-flow-btn">${_esc(T('traceFlowFind'))}</button>`;
 
   document.getElementById('trace-cls-inp').addEventListener('input', function() {
     _populateMethodSelect(this.value);
@@ -1533,6 +1927,7 @@ function _buildTraceLeft(container) {
     const sig  = document.getElementById('trace-mth-sel').value || undefined;
     const hops = parseInt(document.getElementById('trace-hop-sl').value, 10);
     _traceFocalClass = cn; _traceFocalMethod = sig || '';
+    updateTraceImpactFocalHint();
     vscode.postMessage({ type: 'setFocal', className: cn, methodSignature: sig, hops });
   });
   document.getElementById('trace-loc-btn').addEventListener('click', () => {
@@ -1555,33 +1950,64 @@ function _populateMethodSelect(className) {
   const sel = document.getElementById('trace-mth-sel');
   if (!sel) return;
   const entry = allEntries.find(e => e.className === className);
-  if (!entry) { sel.innerHTML = '<option value="">— any —</option>'; return; }
+  if (!entry) { sel.innerHTML = `<option value="">${_esc(T('traceMethodAny'))}</option>`; return; }
   // privateMethods are objects {signature, lineNumber, ...} — extract signature
   const privSigs = (entry.privateMethods || []).map(m => (typeof m === 'object' ? m.signature : m));
   const methods = [...(entry.interfaces || []), ...privSigs];
-  sel.innerHTML = '<option value="">— any —</option>' +
+  sel.innerHTML = `<option value="">${_esc(T('traceMethodAny'))}</option>` +
     methods.map(m => `<option value="${_esc(m)}">${_esc(m.length > 58 ? m.slice(0,58)+'…' : m)}</option>`).join('');
 }
 
 // ── Trace: Right Panel (G2 + G3) ──────────────────────────────
+/**
+ * 影響分析只看 `_traceFocalClass`；按「分析影響 →」才會 postMessage（不會自動重算結果）。
+ * 焦點來源：左欄「追蹤 →」、錯誤定位、或在追蹤模式下點畫布上的類別卡片。
+ */
+function updateTraceImpactFocalHint() {
+  const el = document.getElementById('trace-impact-focal-hint');
+  if (!el) return;
+  if (_traceFocalClass) {
+    el.classList.remove('empty');
+    el.textContent = T('traceImpactFocal', { cn: _traceFocalClass });
+  } else {
+    el.classList.add('empty');
+    el.textContent = T('traceImpactEmpty');
+  }
+}
+
 function _buildTraceRight(container) {
   container.innerHTML = `
-    <div class="panel-header">Call Chain</div>
-    <div id="trace-chain-list"><div class="panel-placeholder">Set focal class and click Trace →</div></div>
+    <div class="chat-panel-toolbar">
+      <span>${_esc(T('traceCallChain'))}</span>
+      <div class="chat-toolbar-actions">
+        <button type="button" class="icon-btn" id="btn-trace-right-collapse" data-i18n-title="chatSidebarCollapseTitle">⟨</button>
+      </div>
+    </div>
+    <div id="trace-chain-list"><div class="panel-placeholder">${_esc(T('traceSetFocalHint'))}</div></div>
     <div id="trace-expl" style="display:none"></div>
-    <div class="panel-header" style="margin-top:4px">Impact Analysis</div>
-    <button class="trace-btn" id="trace-impact-btn" style="margin-bottom:4px">Analyse Impact →</button>
+    <div class="panel-header" style="margin-top:4px">${_esc(T('traceImpactTitle'))}</div>
+    <div id="trace-impact-focal-hint" class="trace-focal-hint"></div>
+    <button type="button" class="trace-btn" id="trace-impact-btn" style="margin-bottom:4px">${_esc(T('traceImpactBtn'))}</button>
     <div id="trace-impact-res"></div>`;
   document.getElementById('trace-impact-btn').addEventListener('click', () => {
     if (_traceFocalClass) vscode.postMessage({ type: 'requestImpact', className: _traceFocalClass });
   });
+  const trc = document.getElementById('btn-trace-right-collapse');
+  if (trc) trc.addEventListener('click', () => _toggleRightPanelCollapsed());
+  updateTraceImpactFocalHint();
 }
 
 function _showTraceResult(msg) {
   if (activeMode !== 'trace') return;
+  if (msg.focalClass) {
+    _traceFocalClass = msg.focalClass;
+    updateTraceImpactFocalHint();
+  }
   // Filter canvas to subgraph
   const sub = new Set((msg.subgraph || []).map(e => e.className));
   traceSubgraph = sub;
+  sub.forEach(cn => { delete nodePositions[cn]; });
+  updateFilterChrome();
   renderAll();
   if (msg.focalClass) setTimeout(() => centerOn(msg.focalClass), 120);
 
@@ -1590,7 +2016,7 @@ function _showTraceResult(msg) {
   if (!chainEl) return;
   const steps = msg.callChain || [];
   if (!steps.length) {
-    chainEl.innerHTML = '<div class="panel-placeholder">No call chain recorded for this method.</div>';
+    chainEl.innerHTML = `<div class="panel-placeholder">${_esc(T('traceNoChain'))}</div>`;
   } else {
     chainEl.innerHTML = steps.map((s, i) => {
       const isSelf = s.targetClass === '_self_';
@@ -1619,14 +2045,14 @@ function _showImpact(msg) {
   if (!el) return;
   const mkList = (arr, cls) => arr.length
     ? arr.map(c => `<span class="impact-class ${cls}" onclick="_nsClassClick('${_esc(c)}')">${_esc(c)}</span>`).join('')
-    : `<span class="impact-class indirect">none</span>`;
+    : `<span class="impact-class indirect">${_esc(T('impactNone'))}</span>`;
   el.innerHTML = `
     <div class="impact-group">
-      <div class="impact-title">Direct (${(msg.direct||[]).length})</div>
+      <div class="impact-title">${_esc(T('impactDirect', { n: (msg.direct||[]).length }))}</div>
       ${mkList(msg.direct||[], '')}
     </div>
     <div class="impact-group" style="border-top:1px solid #2a2a2a">
-      <div class="impact-title">Indirect (${(msg.indirect||[]).length})</div>
+      <div class="impact-title">${_esc(T('impactIndirect', { n: (msg.indirect||[]).length }))}</div>
       ${mkList(msg.indirect||[], 'indirect')}
     </div>`;
 }
@@ -1639,6 +2065,7 @@ function _showAnchorResult(msg) {
   const inp = document.getElementById('trace-cls-inp');
   if (inp) { inp.value = first.className; _populateMethodSelect(first.className); }
   _traceFocalClass = first.className;
+  updateTraceImpactFocalHint();
   // Highlight matched classes on canvas
   classes.forEach((e, i) => {
     const n = nodes[e.className];
@@ -1668,11 +2095,11 @@ let _chatContextClasses = [];
 
 function _buildChatLeft(container) {
   container.innerHTML = `
-    <div class="panel-header">Context Builder</div>
-    <div class="panel-section-title" style="padding:6px 10px 2px">Classes in context</div>
+    <div class="panel-header">${_esc(T('chatCtxTitle'))}</div>
+    <div class="panel-section-title" style="padding:6px 10px 2px">${_esc(T('chatCtxSection'))}</div>
     <ul class="chat-context-list" id="chat-ctx-list"></ul>
-    <button class="chat-add-btn" id="chat-add-selected">+ Add selected class</button>
-    <button class="chat-add-btn" id="chat-add-ns">+ Add current namespace</button>
+    <button type="button" class="chat-add-btn" id="chat-add-selected">${_esc(T('chatAddSelected'))}</button>
+    <button type="button" class="chat-add-btn" id="chat-add-ns">${_esc(T('chatAddNs'))}</button>
   `;
   _refreshChatContextList();
   document.getElementById('chat-add-selected').onclick = () => {
@@ -1696,9 +2123,13 @@ function _buildChatLeft(container) {
 
 function _refreshChatContextList() {
   const list = document.getElementById('chat-ctx-list');
-  if (!list) return;
+  if (!list) {
+    _updateChatPopoutCtxStrip();
+    return;
+  }
   if (_chatContextClasses.length === 0) {
-    list.innerHTML = `<li style="padding:6px 10px;color:#555;font-size:11px;">No classes selected</li>`;
+    list.innerHTML = `<li style="padding:6px 10px;color:#555;font-size:11px;">${_esc(T('chatNoClassesSelected'))}</li>`;
+    _updateChatPopoutCtxStrip();
     return;
   }
   list.innerHTML = _chatContextClasses.map(cn => `
@@ -1722,27 +2153,64 @@ function _refreshChatContextList() {
       if (nodes[cn]) centerOn(cn);
     };
   });
+  _updateChatPopoutCtxStrip();
 }
 
 // ── Chat: Right Panel — Chat UI (H1) ──────────────────────────
 function _buildChatRight(container) {
   container.innerHTML = `
     <div id="chat-panel-right">
-      <div class="panel-header">Chat</div>
-      <div id="chat-output">
-        <div class="chat-empty">Ask a question about your codebase…</div>
+      <div id="chat-popout-ctx-strip">${_esc(T('chatPopoutNoCtx'))}</div>
+      <div class="chat-panel-toolbar">
+        <span>${_esc(T('chatPanelTitle'))}</span>
+        <div class="chat-toolbar-actions">
+          <button type="button" class="icon-btn" id="btn-chat-sidebar-collapse" data-i18n-title="chatSidebarCollapseTitle">⟨</button>
+          <button type="button" class="icon-btn" id="btn-chat-popout" data-i18n-title="chatPopoutTitle">⧉</button>
+        </div>
       </div>
-      <div id="chat-spinner" class="chat-spinner" style="display:none">Thinking…</div>
+      <div id="chat-output">
+        <div class="chat-empty">${_esc(T('chatEmpty'))}</div>
+      </div>
+      <div id="chat-spinner" class="chat-spinner" style="display:none">${_esc(T('chatThinking'))}</div>
       <div class="chat-input-row">
-        <textarea id="chat-input" placeholder="Ask about selected classes…" rows="2"></textarea>
-        <button id="chat-send-btn">Send</button>
+        <textarea id="chat-input" placeholder="${_esc(T('chatInputPh'))}" rows="2"></textarea>
+        <button type="button" id="chat-send-btn">${_esc(T('chatSend'))}</button>
       </div>
     </div>
   `;
+  const strip = document.getElementById('chat-popout-ctx-strip');
+  if (strip && !IS_CHAT_POPOUT) strip.style.display = 'none';
   document.getElementById('chat-send-btn').onclick = _sendChatMessage;
   document.getElementById('chat-input').addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); _sendChatMessage(); }
   });
+  const btnCol = document.getElementById('btn-chat-sidebar-collapse');
+  if (btnCol) {
+    btnCol.addEventListener('click', () => _toggleRightPanelCollapsed());
+  }
+  const btnPop = document.getElementById('btn-chat-popout');
+  if (btnPop) {
+    btnPop.addEventListener('click', () => {
+      vscode.postMessage({ type: 'openChatPopout', selectedClasses: _chatContextClasses });
+    });
+  }
+  if (IS_CHAT_POPOUT) {
+    if (btnCol) btnCol.style.display = 'none';
+    if (btnPop) btnPop.style.display = 'none';
+  }
+}
+
+function _updateChatPopoutCtxStrip() {
+  const strip = document.getElementById('chat-popout-ctx-strip');
+  if (!strip) return;
+  if (!IS_CHAT_POPOUT) {
+    strip.style.display = 'none';
+    return;
+  }
+  strip.style.display = 'flex';
+  strip.textContent = _chatContextClasses.length
+    ? T('chatPopoutCtxStrip', { names: _chatContextClasses.join(', ') })
+    : T('chatPopoutNoCtx');
 }
 
 function _sendChatMessage() {
@@ -1815,14 +2283,14 @@ function _renderCodeBlock(lang, code) {
   const jumpBtn = fileLine
     ? `<button class="chat-code-jump"
          data-file="${_esc(fileLine[1])}" data-line="${fileLine[2] || 1}"
-         title="Jump to ${_esc(fileLine[1])}:${fileLine[2] || 1}">⤢ Jump</button>`
+         title="${_esc(T('chatJumpTitle', { file: fileLine[1], line: fileLine[2] || 1 }))}">⤢ ${_esc(T('chatJump'))}</button>`
     : '';
 
   return `<div class="chat-code-block">
     <div class="chat-code-header">
       <span class="chat-code-lang">${_esc(lang || 'text')}</span>
       ${jumpBtn}
-      <button class="chat-code-copy" data-code="${_esc(code)}">Copy</button>
+      <button class="chat-code-copy" data-code="${_esc(code)}">${_esc(T('chatCopy'))}</button>
     </div>
     <pre class="chat-code-pre">${_esc(code.replace(/\n$/, ''))}</pre>
   </div>`;
@@ -1898,10 +2366,122 @@ function _wireRenderedChatMsg(div) {
 
 function _adjustCanvasMargins() {
   const cc = document.getElementById('canvas-container');
-  const lOpen = document.getElementById('left-panel').classList.contains('open');
-  const rOpen = document.getElementById('right-panel').classList.contains('open');
-  cc.style.left  = lOpen ? '240px' : '0';
-  cc.style.right = rOpen ? '290px' : '0';
+  if (!cc) return;
+  const lp = document.getElementById('left-panel');
+  const lOpen = !!(lp && lp.classList.contains('open') && !lp.classList.contains('collapsed'));
+  const rp = document.getElementById('right-panel');
+  const rOpen = !!(rp && rp.classList.contains('open') && !rp.classList.contains('collapsed'));
+  cc.style.left  = lOpen ? `${LEFT_PANEL_WIDTH_PX}px` : '0';
+  cc.style.right = rOpen ? `${rightPanelWidthPx}px` : '0';
+}
+
+function applyLeftPanelLayout() {
+  if (IS_CHAT_POPOUT) return;
+  const lp = document.getElementById('left-panel');
+  const tab = document.getElementById('left-panel-dock-tab');
+  const btn = document.getElementById('btn-left-panel-collapse');
+  if (!lp) return;
+  if (leftPanelCollapsed) {
+    lp.classList.remove('open');
+    lp.classList.add('collapsed');
+    if (tab) tab.style.display = 'flex';
+    if (btn) btn.style.display = 'none';
+  } else {
+    lp.classList.add('open');
+    lp.classList.remove('collapsed');
+    if (tab) tab.style.display = 'none';
+    if (btn) btn.style.display = '';
+  }
+}
+
+function applySidePanelsLayout() {
+  if (IS_CHAT_POPOUT) {
+    _adjustCanvasMargins();
+    return;
+  }
+  applyLeftPanelLayout();
+  applyRightPanelLayout();
+}
+
+function applyRightPanelLayout() {
+  if (IS_CHAT_POPOUT) {
+    _adjustCanvasMargins();
+    return;
+  }
+  const rp = document.getElementById('right-panel');
+  const rs = document.getElementById('right-panel-resizer');
+  const tab = document.getElementById('right-panel-dock-tab');
+  if (!rp) {
+    _adjustCanvasMargins();
+    return;
+  }
+  document.documentElement.style.setProperty('--bp-right-w', `${rightPanelWidthPx}px`);
+  if (rightPanelCollapsed) {
+    rp.classList.remove('open');
+    rp.classList.add('collapsed');
+    if (rs) rs.style.display = 'none';
+    if (tab) tab.style.display = 'flex';
+  } else {
+    rp.classList.add('open');
+    rp.classList.remove('collapsed');
+    if (rs) {
+      rs.style.display = 'block';
+      rs.style.right = `${rightPanelWidthPx}px`;
+    }
+    if (tab) tab.style.display = 'none';
+  }
+  _adjustCanvasMargins();
+}
+
+let _rightResizeActive = false;
+function _startRightPanelResize(ev) {
+  if (IS_CHAT_POPOUT || rightPanelCollapsed) return;
+  ev.preventDefault();
+  _rightResizeActive = true;
+  const startX = ev.clientX;
+  const startW = rightPanelWidthPx;
+  const maxW = Math.min(720, Math.max(320, window.innerWidth - 280));
+  function onMove(e) {
+    if (!_rightResizeActive) return;
+    const dx = startX - e.clientX;
+    let nw = startW + dx;
+    nw = Math.max(220, Math.min(maxW, nw));
+    rightPanelWidthPx = nw;
+    document.documentElement.style.setProperty('--bp-right-w', `${nw}px`);
+    const rs = document.getElementById('right-panel-resizer');
+    if (rs) rs.style.right = `${nw}px`;
+    _adjustCanvasMargins();
+  }
+  function onUp() {
+    if (!_rightResizeActive) return;
+    _rightResizeActive = false;
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    try { localStorage.setItem(LS_RIGHT_W, String(rightPanelWidthPx)); } catch (_) {}
+    renderMinimap();
+  }
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
+function _toggleRightPanelCollapsed() {
+  rightPanelCollapsed = !rightPanelCollapsed;
+  try {
+    if (rightPanelCollapsed) localStorage.setItem(LS_RIGHT_COLLAPSE, '1');
+    else localStorage.removeItem(LS_RIGHT_COLLAPSE);
+  } catch (_) {}
+  applySidePanelsLayout();
+  renderMinimap();
+}
+
+function _toggleLeftPanelCollapsed() {
+  leftPanelCollapsed = !leftPanelCollapsed;
+  try {
+    if (leftPanelCollapsed) localStorage.setItem(LS_LEFT_COLLAPSE, '1');
+    else localStorage.removeItem(LS_LEFT_COLLAPSE);
+  } catch (_) {}
+  applySidePanelsLayout();
+  renderMinimap();
 }
 
 document.querySelectorAll('.mode-btn').forEach(btn => {
@@ -1918,6 +2498,51 @@ document.getElementById('btn-cluster').addEventListener('click', () => {
     renderAll();
   }
 });
+
+document.getElementById('locale-select').addEventListener('change', e => {
+  const v = e.target.value === 'en' ? 'en' : 'zh-TW';
+  uiLocale = v;
+  document.documentElement.lang = v === 'zh-TW' ? 'zh-Hant' : 'en';
+  applyChromeI18n();
+  e.target.value = v;
+  _renderSidePanels(activeMode);
+  if (moduleViewActive && moduleData && moduleData.modules && moduleData.modules.length) renderModuleOverview();
+  vscode.postMessage({ type: 'setUiLocale', locale: v });
+});
+
+applyChromeI18n();
+document.getElementById('locale-select').value = uiLocale;
+
+(function _wireSidePanelsChrome() {
+  const lbtn = document.getElementById('btn-left-panel-collapse');
+  if (lbtn) lbtn.addEventListener('click', () => _toggleLeftPanelCollapsed());
+  const ltab = document.getElementById('left-panel-dock-tab');
+  if (ltab) {
+    ltab.addEventListener('click', () => {
+      leftPanelCollapsed = false;
+      try { localStorage.removeItem(LS_LEFT_COLLAPSE); } catch (_) {}
+      applySidePanelsLayout();
+      renderMinimap();
+    });
+  }
+  const rs = document.getElementById('right-panel-resizer');
+  if (rs) {
+    rs.addEventListener('mousedown', _startRightPanelResize);
+    rs.addEventListener('dblclick', (e) => {
+      e.preventDefault();
+      _toggleRightPanelCollapsed();
+    });
+  }
+  const tab = document.getElementById('right-panel-dock-tab');
+  if (tab) {
+    tab.addEventListener('click', () => {
+      rightPanelCollapsed = false;
+      try { localStorage.removeItem(LS_RIGHT_COLLAPSE); } catch (_) {}
+      applySidePanelsLayout();
+      renderMinimap();
+    });
+  }
+})();
 
 // Open panels for default mode on load
 _renderSidePanels(activeMode);
@@ -2018,16 +2643,43 @@ function updateSuggestionChips() {
 //  Module Overview (P22)
 // ============================================================
 
+/** Breadcrumb lived inside #module-overview, which is display:none while drilled — unusable. */
+function hideModuleScopeBar() {
+  const bar = document.getElementById('module-scope-bar');
+  const cc = document.getElementById('canvas-container');
+  if (bar) bar.classList.remove('visible');
+  if (cc) cc.classList.remove('has-module-scope');
+}
+
+function showModuleScopeBar(currentModuleName) {
+  if (!moduleData?.modules?.length) return;
+  const bar = document.getElementById('module-scope-bar');
+  const cc = document.getElementById('canvas-container');
+  const sel = document.getElementById('module-scope-select');
+  if (!bar || !cc || !sel) return;
+  bar.classList.add('visible');
+  cc.classList.add('has-module-scope');
+  sel.title = T('moduleScopeSwitch');
+  const sorted = [...moduleData.modules].sort((a, b) => a.name.localeCompare(b.name));
+  sel.innerHTML = sorted.map(m => {
+    const selAttr = m.name === currentModuleName ? ' selected' : '';
+    return `<option value="${_esc(m.name)}"${selAttr}>${_esc(m.name)}</option>`;
+  }).join('');
+  sel.value = currentModuleName;
+}
+
 function renderModuleOverview() {
   const el = document.getElementById('module-overview');
   if (!moduleData || !moduleData.modules || moduleData.modules.length === 0) {
     el.classList.remove('visible');
     moduleViewActive = false;
+    hideModuleScopeBar();
     return;
   }
 
   moduleViewActive = true;
   drilledModule = null;
+  hideModuleScopeBar();
   el.classList.add('visible');
   document.getElementById('canvas').style.display = 'none';
 
@@ -2049,17 +2701,15 @@ function renderModuleOverview() {
 
   let html = '';
 
-  // Breadcrumb (hidden on overview root)
-  html += '<div class="module-breadcrumb" id="module-breadcrumb"></div>';
-
   // Project header
-  html += `<div class="module-overview-header">${projectName || 'Project'} — Module Overview</div>`;
-  html += `<div class="module-overview-summary" id="module-project-summary">${modules.length} modules, ${modules.reduce((s,m) => s + m.classNames.length, 0)} classes</div>`;
+  html += `<div class="module-overview-header">${T('moduleOverviewHeader', { name: _esc(projectName || 'Project') })}</div>`;
+  const totalC = modules.reduce((s,m) => s + m.classNames.length, 0);
+  html += `<div class="module-overview-summary" id="module-project-summary">${_esc(T('moduleSummaryCounts', { m: modules.length, c: totalC }))}</div>`;
 
   // Entry point guide
   if (mainMod) {
     html += `<div class="module-overview-guide visible" id="module-guide" data-module="${mainMod.name}" data-class="${mainEp.className}">` +
-      `Start exploring from <strong>${mainEp.className}</strong> in module <strong>${mainMod.name}</strong> — main entry point</div>`;
+      `${T('moduleGuide', { cls: _esc(mainEp.className), mod: _esc(mainMod.name) })}</div>`;
   }
 
   // Module grid (sorted by class count descending)
@@ -2072,13 +2722,13 @@ function renderModuleOverview() {
 
     // Badges
     let badges = '';
-    if (isEntry) badges += '<span class="module-card-badge entry">entry</span>';
+    if (isEntry) badges += `<span class="module-card-badge entry">${_esc(T('badgeEntry'))}</span>`;
     const hubClasses = (entryPoints || []).filter(ep => ep.kind === 'hub' && mod.classNames.includes(ep.className));
-    if (hubClasses.length) badges += '<span class="module-card-badge hub">hub</span>';
+    if (hubClasses.length) badges += `<span class="module-card-badge hub">${_esc(T('badgeHub'))}</span>`;
 
     html += `<div class="module-card ${entryClass}" data-module="${mod.name}">`;
     html += `<div class="module-card-name">${mod.name}</div>`;
-    html += `<div class="module-card-stats">${mod.classNames.length} classes · ${mod.internalEdgeCount} internal deps</div>`;
+    html += `<div class="module-card-stats">${_esc(T('moduleCardStats', { c: mod.classNames.length, i: mod.internalEdgeCount }))}</div>`;
     html += `<div class="module-card-seed">${mod.summarySeed || ''}</div>`;
     if (badges) html += `<div>${badges}</div>`;
     if (extDeps) html += `<div class="module-card-deps">${extDeps}</div>`;
@@ -2089,7 +2739,7 @@ function renderModuleOverview() {
   // Exploration Path (M24-05)
   if (explorationPathData && explorationPathData.steps && explorationPathData.steps.length >= 2) {
     html += '<div class="exploration-path" id="exploration-path">';
-    html += '<div style="color:#888;font-size:10px;text-transform:uppercase;margin-bottom:6px;">Suggested Exploration Path</div>';
+    html += `<div style="color:#888;font-size:10px;text-transform:uppercase;margin-bottom:6px;">${_esc(T('moduleSuggestedPath'))}</div>`;
     html += '<div class="exploration-path-steps">';
     explorationPathData.steps.forEach((step, i) => {
       if (i > 0) html += '<span class="path-arrow">→</span>';
@@ -2102,7 +2752,7 @@ function renderModuleOverview() {
   // Key Flows section (M25-03)
   if (keyFlowsData && keyFlowsData.length > 0) {
     html += '<div class="key-flows-section" id="key-flows-section">';
-    html += '<div style="color:#888;font-size:10px;text-transform:uppercase;margin-bottom:6px;">Key Flows</div>';
+    html += `<div style="color:#888;font-size:10px;text-transform:uppercase;margin-bottom:6px;">${_esc(T('moduleKeyFlows'))}</div>`;
     keyFlowsData.slice(0, 8).forEach((flow, i) => {
       const moduleList = flow.crossedModules.join(' → ');
       html += `<div class="key-flow-item" data-flow-idx="${i}" title="${flow.name}">` +
@@ -2190,15 +2840,7 @@ function drillDownToModule(moduleName) {
   el.classList.remove('visible');
   document.getElementById('canvas').style.display = '';
 
-  // Show breadcrumb
-  const bc = document.getElementById('module-breadcrumb');
-  if (bc) {
-    bc.classList.add('visible');
-    bc.innerHTML = `<a id="bc-overview">Overview</a> › <strong>${moduleName}</strong>`;
-    document.getElementById('bc-overview').addEventListener('click', () => {
-      returnToModuleOverview();
-    });
-  }
+  showModuleScopeBar(moduleName);
 
   // Tell extension to send us the module's classes
   vscode.postMessage({ type: 'moduleDrillDown', moduleName });
@@ -2206,31 +2848,43 @@ function drillDownToModule(moduleName) {
 
 function returnToModuleOverview() {
   drilledModule = null;
-  const bc = document.getElementById('module-breadcrumb');
-  if (bc) bc.classList.remove('visible');
+  hideModuleScopeBar();
   vscode.postMessage({ type: 'moduleOverview' });
   renderModuleOverview();
 }
 
+(function setupModuleScopeBar() {
+  document.getElementById('scope-back-overview').addEventListener('click', e => {
+    e.preventDefault();
+    returnToModuleOverview();
+  });
+  const scopeSel = document.getElementById('module-scope-select');
+  scopeSel.addEventListener('change', () => {
+    const v = scopeSel.value;
+    if (!v || !moduleData?.modules) return;
+    if (moduleData.modules.some(m => m.name === v)) drillDownToModule(v);
+  });
+})();
+
 function showModuleSummary(moduleName, summary) {
-  // Display in right panel
-  const rp = document.getElementById('right-panel');
-  if (!rp) return;
-  rp.classList.add('open');
-  rp.innerHTML = `<div class="panel-header">Module: ${moduleName}</div>` +
+  if (activeMode !== 'explore') return;
+  const rc = ensureRightPanelContent();
+  if (!rc) return;
+  if (!document.getElementById('right-panel')) return;
+  rc.innerHTML = `<div class="panel-header">${T('moduleHeader', { name: _esc(moduleName) })}</div>` +
     `<div style="padding:10px 12px;">` +
     `<div style="color:#4ec9b0;font-weight:600;margin-bottom:6px;">${summary.intent || ''}</div>` +
-    (summary.keyClasses?.length ? `<div style="margin-bottom:8px;"><span style="color:#888;font-size:10px;">KEY CLASSES</span><br>` +
+    (summary.keyClasses?.length ? `<div style="margin-bottom:8px;"><span style="color:#888;font-size:10px;">${_esc(T('moduleKeyClasses'))}</span><br>` +
       summary.keyClasses.map(c => `<span style="color:#9cdcfe;cursor:pointer;" class="mod-key-class" data-class="${c}">${c}</span>`).join(', ') + '</div>' : '') +
-    (summary.interactions?.length ? `<div style="margin-bottom:8px;"><span style="color:#888;font-size:10px;">INTERACTIONS</span>` +
+    (summary.interactions?.length ? `<div style="margin-bottom:8px;"><span style="color:#888;font-size:10px;">${_esc(T('moduleInteractions'))}</span>` +
       summary.interactions.map(i => `<div style="color:#aaa;font-size:11px;margin-top:3px;">• ${i}</div>`).join('') + '</div>' : '') +
-    (summary.entryPath ? `<div style="margin-bottom:8px;"><span style="color:#888;font-size:10px;">START FROM</span><br>` +
+    (summary.entryPath ? `<div style="margin-bottom:8px;"><span style="color:#888;font-size:10px;">${_esc(T('moduleStartFrom'))}</span><br>` +
       `<span style="color:#4fc3f7;cursor:pointer;" class="mod-key-class" data-class="${summary.entryPath}">${summary.entryPath}</span></div>` : '') +
     (summary.notes ? `<div style="color:#666;font-size:10px;margin-top:8px;">${summary.notes}</div>` : '') +
     '</div>';
 
   // Wire key class clicks → drill down
-  rp.querySelectorAll('.mod-key-class').forEach(el => {
+  rc.querySelectorAll('.mod-key-class').forEach(el => {
     el.addEventListener('click', () => {
       const cn = el.dataset.class;
       // Find which module this class belongs to
@@ -2244,23 +2898,28 @@ function showModuleSummary(moduleName, summary) {
       }
     });
   });
+  applyChromeI18n();
+  applySidePanelsLayout();
 }
 
 // ============================================================
 //  Flow Result Display (M25-04)
 // ============================================================
 function _showFlowResult(query, flows) {
-  const rp = document.getElementById('right-panel');
-  if (!rp) return;
-  rp.classList.add('open');
+  if (activeMode === 'chat') return;
+  const rc = ensureRightPanelContent();
+  if (!rc) return;
+  if (!document.getElementById('right-panel')) return;
 
   if (!flows.length) {
-    rp.innerHTML = `<div class="panel-header">Flow Query</div>` +
-      `<div style="padding:12px;color:#888;">No flows found for "${query}"</div>`;
+    rc.innerHTML = `<div class="panel-header">${_esc(T('moduleFlowQuery'))}</div>` +
+      `<div style="padding:12px;color:#888;">${T('moduleNoFlows', { query: _esc(query) })}</div>`;
+    applyChromeI18n();
+    applySidePanelsLayout();
     return;
   }
 
-  let html = `<div class="panel-header">Flows: ${query}</div><div style="padding:10px 12px;">`;
+  let html = `<div class="panel-header">${T('moduleFlowsTitle', { query: _esc(query) })}</div><div style="padding:10px 12px;">`;
   flows.forEach((flow, i) => {
     html += `<div style="margin-bottom:12px;">`;
     html += `<div style="color:#4ec9b0;font-weight:600;font-size:11px;">${i + 1}. ${flow.name}</div>`;
@@ -2273,7 +2932,9 @@ function _showFlowResult(query, flows) {
     html += `</div>`;
   });
   html += '</div>';
-  rp.innerHTML = html;
+  rc.innerHTML = html;
+  applyChromeI18n();
+  applySidePanelsLayout();
 }
 
 // ============================================================
@@ -2312,12 +2973,12 @@ function _showCallTreeResult(msg) {
   // M27-12: "Explain this path" button
   const explainBtn = document.createElement('button');
   explainBtn.className = 'trace-explain-btn';
-  explainBtn.textContent = 'Explain this call path';
+  explainBtn.textContent = T('explainCallPath');
   explainBtn.style.cssText = 'margin: 6px 10px; padding: 4px 10px; font-size: 10px; ' +
     'background: rgba(79,195,247,0.15); color: #4fc3f7; border: 1px solid rgba(79,195,247,0.3); ' +
     'border-radius: 4px; cursor: pointer;';
   explainBtn.addEventListener('click', () => {
-    explainBtn.textContent = 'Analyzing...';
+    explainBtn.textContent = T('traceAnalyzing');
     explainBtn.disabled = true;
     // Extract longest root-to-leaf path as CallStep[]
     const path = _extractLongestPath(tree);
@@ -2370,6 +3031,163 @@ function _extractLongestPath(tree) {
     }
   }
   return longest;
+}
+
+// ============================================================
+//  Caller Tree (Reverse) Result Handler (M28-05)
+// ============================================================
+let _lastCallerTree = null;
+
+function _showCallerTreeResult(msg) {
+  if (!traceMode || traceMode.className !== msg.className) return;
+
+  // Remove any existing caller tree section
+  const existing = tracePanelList.querySelector('.caller-tree-section');
+  if (existing) existing.remove();
+
+  const tree = msg.tree;
+  if (!tree || (!tree.children || tree.children.length === 0)) {
+    // Show empty state
+    const section = document.createElement('div');
+    section.className = 'caller-tree-section';
+    const title = document.createElement('div');
+    title.className = 'call-tree-section-title';
+    title.textContent = T('callerTree') || 'Callers (Who calls this?)';
+    section.appendChild(title);
+    const empty = document.createElement('div');
+    empty.className = 'trace-empty-msg';
+    empty.textContent = T('noCallers') || 'No callers found for this method.';
+    section.appendChild(empty);
+    tracePanelList.appendChild(section);
+    return;
+  }
+
+  _lastCallerTree = { tree, className: msg.className, methodSignature: msg.methodSignature };
+
+  const section = document.createElement('div');
+  section.className = 'caller-tree-section';
+
+  const title = document.createElement('div');
+  title.className = 'call-tree-section-title';
+  title.textContent = T('callerTree') || 'Callers (Who calls this?)';
+  section.appendChild(title);
+
+  const treeContainer = document.createElement('div');
+  treeContainer.className = 'call-tree caller-tree';
+  section.appendChild(treeContainer);
+
+  renderCallerTree(tree, treeContainer, 2);
+
+  tracePanelList.appendChild(section);
+}
+
+function renderCallerTree(tree, container, initialExpandDepth) {
+  if (!initialExpandDepth) initialExpandDepth = 1;
+
+  function renderNodeInto(node, depth, parentEl) {
+    const div = document.createElement('div');
+    div.className = 'call-tree-node';
+    div.style.setProperty('--depth', depth);
+
+    // Toggle
+    const toggle = document.createElement('span');
+    toggle.className = 'call-tree-toggle';
+    const hasChildren = node.children && node.children.length > 0;
+    if (hasChildren) {
+      toggle.className += depth < initialExpandDepth ? ' expanded' : ' collapsed';
+    } else {
+      toggle.className += ' leaf';
+    }
+    div.appendChild(toggle);
+
+    // Icon — use arrow-left style for "called by" direction
+    const icon = document.createElement('span');
+    icon.className = 'call-tree-icon ct-caller';
+    icon.textContent = '\u25C0'; // ◀ left arrow
+    div.appendChild(icon);
+
+    // Class name
+    const clsSpan = document.createElement('span');
+    clsSpan.className = 'call-tree-class';
+    const displayCls = node.className.split('::').pop();
+    clsSpan.textContent = displayCls;
+    clsSpan.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (node.className !== '_self_' && node.className !== '_global_' && node.className !== '_meta_') {
+        selectNode(node.className.split('::').pop());
+      }
+    });
+    div.appendChild(clsSpan);
+
+    // Sep + method (show short name extracted from signature)
+    if (node.method) {
+      const sep = document.createElement('span');
+      sep.className = 'call-tree-sep';
+      sep.textContent = '::';
+      div.appendChild(sep);
+      const methSpan = document.createElement('span');
+      methSpan.className = 'call-tree-method';
+      // Extract short method name from full signature
+      const nameMatch = node.method.match(/\b([a-zA-Z_~]\w*)\s*\(/);
+      methSpan.textContent = nameMatch ? nameMatch[1] + '()' : node.method;
+      methSpan.title = node.method; // full signature as tooltip
+      div.appendChild(methSpan);
+    }
+
+    // Line number
+    if (node.lineNumber && node.lineNumber > 0) {
+      const ln = document.createElement('span');
+      ln.className = 'call-tree-line';
+      ln.textContent = ':' + node.lineNumber;
+      ln.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (node.fileLocation) {
+          vscode.postMessage({
+            type: 'methodClick',
+            fileLocation: node.fileLocation,
+            lineNumber: node.lineNumber,
+            className: node.className,
+            methodSignature: node.method,
+          });
+        }
+      });
+      div.appendChild(ln);
+    }
+
+    parentEl.appendChild(div);
+
+    // Children (callers of this caller)
+    if (hasChildren) {
+      const childContainer = document.createElement('div');
+      childContainer.className = 'call-tree-children';
+      if (depth >= initialExpandDepth) {
+        childContainer.classList.add('collapsed');
+      }
+      for (const child of node.children) {
+        renderNodeInto(child, depth + 1, childContainer);
+      }
+      parentEl.appendChild(childContainer);
+
+      toggle.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isCollapsed = childContainer.classList.contains('collapsed');
+        childContainer.classList.toggle('collapsed');
+        toggle.className = 'call-tree-toggle ' + (isCollapsed ? 'expanded' : 'collapsed');
+      });
+    }
+  }
+
+  // Render root's children (skip root itself — it's the target method)
+  if (tree.children && tree.children.length > 0) {
+    for (const child of tree.children) {
+      renderNodeInto(child, 0, container);
+    }
+  } else {
+    const empty = document.createElement('div');
+    empty.className = 'trace-empty-msg';
+    empty.textContent = T('noCallers') || 'No callers found.';
+    container.appendChild(empty);
+  }
 }
 
 // ============================================================
@@ -2521,6 +3339,7 @@ window.addEventListener('message', ev => {
     case 'loadEntries':   // legacy compatibility
       allEntries = msg.entries || [];
       totalCount = msg.totalCount || allEntries.length;
+      if (IS_CHAT_POPOUT) break;
       // If we're in drill-down view, show class canvas
       if (drilledModule) {
         document.getElementById('module-overview').classList.remove('visible');
@@ -2536,13 +3355,14 @@ window.addEventListener('message', ev => {
         entryPoints: msg.entryPoints || [],
         projectName: msg.projectName || '',
       };
+      if (IS_CHAT_POPOUT) break;
       // Auto-show module overview if in explore mode and not drilled down
       if (activeMode === 'explore' && !drilledModule) {
         renderModuleOverview();
       }
       break;
     case 'moduleSummaryResult':
-      showModuleSummary(msg.moduleName, msg.summary);
+      if (activeMode === 'explore') showModuleSummary(msg.moduleName, msg.summary);
       break;
     case 'projectSummary': {
       const sumEl = document.getElementById('module-project-summary');
@@ -2560,7 +3380,7 @@ window.addEventListener('message', ev => {
       if (moduleViewActive) renderModuleOverview();
       break;
     case 'flowResult':
-      _showFlowResult(msg.query, msg.flows || []);
+      if (activeMode !== 'chat') _showFlowResult(msg.query, msg.flows || []);
       break;
     case 'modeChanged':
       if (msg.mode && msg.mode !== activeMode) switchMode(msg.mode);
@@ -2604,6 +3424,9 @@ window.addEventListener('message', ev => {
     case 'callTreeResult':
       _showCallTreeResult(msg);
       break;
+    case 'callerTreeResult':
+      _showCallerTreeResult(msg);
+      break;
     case 'callPathExplanation': {
       const explainEl = document.getElementById('call-path-explanation');
       if (explainEl) {
@@ -2611,7 +3434,7 @@ window.addEventListener('message', ev => {
         explainEl.style.display = 'block';
       }
       const btn = tracePanelList.querySelector('.trace-explain-btn');
-      if (btn) { btn.textContent = 'Explain this call path'; btn.disabled = false; }
+      if (btn) { btn.textContent = T('explainCallPath'); btn.disabled = false; }
       break;
     }
     case 'anchorResult':
@@ -2654,6 +3477,22 @@ window.addEventListener('message', ev => {
       }
       break;
     }
+    case 'chatPopoutInit': {
+      _chatContextClasses = Array.isArray(msg.selectedClasses) ? [...msg.selectedClasses] : [];
+      _updateChatPopoutCtxStrip();
+      break;
+    }
+    case 'uiLocaleChanged': {
+      const loc = msg.locale === 'en' ? 'en' : 'zh-TW';
+      uiLocale = loc;
+      document.documentElement.lang = loc === 'zh-TW' ? 'zh-Hant' : 'en';
+      applyChromeI18n();
+      const ls = document.getElementById('locale-select');
+      if (ls) ls.value = loc;
+      _renderSidePanels(activeMode);
+      if (moduleViewActive && moduleData && moduleData.modules?.length) renderModuleOverview();
+      break;
+    }
     case 'extensionError':
       console.error('Blueprint extension error:', msg.message);
       {
@@ -2669,7 +3508,7 @@ window.addEventListener('message', ev => {
           div.className = 'chat-msg assistant';
           div.dataset.role = 'assistant';
           div.style.borderLeft = '3px solid #f78166';
-          div.textContent = `Error: ${msg.message}`;
+          div.textContent = `${T('errPrefix')}${msg.message}`;
           out.appendChild(div);
           out.scrollTop = out.scrollHeight;
         }
@@ -2686,9 +3525,20 @@ vscode.postMessage({ type: 'ready' });
 // P12-03: Kahn-BFS topo-rank tree layout — no overlapping, tree spreading
 function computeLayout(entries, direction) {
   const NODE_W = 240, NODE_H = 50;
-  // Spacing: generous to prevent overlap even when nodes are expanded
-  const RANK_GAP = 180;   // distance between ranks (depth levels)
-  const NODE_GAP = 80;    // distance between siblings within a rank
+  // Tighter gaps for small subgraphs (search / trace) so the canvas feels compact;
+  // keep loose spacing for large graphs to reduce initial overlap before resolveOverlaps.
+  const nEnt = entries.length;
+  let RANK_GAP, NODE_GAP;
+  if (nEnt <= 24) {
+    RANK_GAP = 72;
+    NODE_GAP = 28;
+  } else if (nEnt <= 60) {
+    RANK_GAP = 120;
+    NODE_GAP = 48;
+  } else {
+    RANK_GAP = 180;
+    NODE_GAP = 80;
+  }
 
   const positions = {};
   const classNames = new Set(entries.map(e => e.className));
@@ -2785,8 +3635,8 @@ function computeLayout(entries, direction) {
 // Reads actual offsetWidth/offsetHeight and iteratively pushes
 // overlapping nodes apart so expanded cards never cover each other.
 function resolveOverlaps() {
-  const PAD = 24;       // minimum gap between any two nodes
-  const MAX_ITERS = 80;
+  const PAD = 28;       // minimum gap between any two nodes (expanded cards need slack)
+  const MAX_ITERS = 140;
   const nodeList = Object.values(nodes).filter(n => n.el.style.display !== 'none');
   if (nodeList.length < 2) return;
 
@@ -2833,6 +3683,9 @@ function resolveOverlaps() {
     r.n.y = r.y;
     const cn = r.n.el.dataset.class;
     if (cn) nodePositions[cn] = { x: r.x, y: r.y };
+    // edgePathObj / fitView / minimap use n.w,n.h — keep in sync with real box
+    r.n.w = r.n.el.offsetWidth || r.w;
+    r.n.h = r.n.el.offsetHeight || r.h;
   });
 }
 
@@ -2908,7 +3761,7 @@ function _renderClusterView(entries) {
     if (nsColor) el.style.borderColor = nsColor;
 
     const sampleNames = cl._members.slice(0, 3).map(e => e.className).join(', ');
-    const more = cl._members.length > 3 ? ` +${cl._members.length - 3} more` : '';
+    const more = cl._members.length > 3 ? T('clusterMore', { n: cl._members.length - 3 }) : '';
 
     el.innerHTML = `
       <div class="cluster-header" ${nsColor ? `style="color:${nsColor}"` : ''}>
@@ -2916,7 +3769,7 @@ function _renderClusterView(entries) {
         <span class="cluster-ns-name" title="${_esc(cl.className)}">${_esc(cl.className)}</span>
       </div>
       <div class="cluster-body">
-        <span class="cluster-count">${cl._members.length}</span> classes
+        <span class="cluster-count">${cl._members.length}</span> ${T('clusterClasses')}
         <div class="cluster-classes">${_esc(sampleNames)}${more}</div>
       </div>
     `;
@@ -3031,14 +3884,23 @@ function _renderAllImpl() {
     nodes[entry.className] = { el, entry, x: pos.x, y: pos.y, w: pos.w, h: pos.h };
   });
 
+  // Double rAF: first full layout pass for expanded cards (methods/sections) so
+  // offsetWidth/offsetHeight are stable before overlap separation.
   requestAnimationFrame(() => {
-    Object.values(nodes).forEach(n => { n.h = n.el.offsetHeight; });
-    drawEdges(visible, classSet);
-    const { matched } = _filterEntries(filterRegex);
-    updateInfoBar(visible.length, filterRegex ? matched.length : visible.length, totalCount);
-    fitView();
-    renderMinimap();
-    updateSuggestionChips();
+    requestAnimationFrame(() => {
+      Object.values(nodes).forEach(n => {
+        if (n.el.style.display === 'none') return;
+        n.w = n.el.offsetWidth || n.w;
+        n.h = n.el.offsetHeight || n.h;
+      });
+      resolveOverlaps();
+      drawEdges(visible, classSet);
+      const { matched } = _filterEntries(filterRegex);
+      updateInfoBar(visible.length, filterRegex ? matched.length : visible.length, totalCount);
+      fitView();
+      renderMinimap();
+      updateSuggestionChips();
+    });
   });
 }
 
@@ -3125,7 +3987,7 @@ function _legacyCreateNodeEl(entry, opts = {}) {
   expandBadge.dataset.class = entry.className;
   expandBadge.style.display = hiddenCount > 0 ? 'inline-block' : 'none';
   expandBadge.textContent = `+${hiddenCount}`;
-  expandBadge.title = `Expand ${hiddenCount} connected class${hiddenCount===1?'':'es'} not yet in view`;
+  expandBadge.title = T('nodeExpandNeighbors', { n: hiddenCount });
   expandBadge.addEventListener('click', (e) => {
     e.stopPropagation();
     expandNeighbors(entry.className);
@@ -3135,7 +3997,7 @@ function _legacyCreateNodeEl(entry, opts = {}) {
   const toggleBtn = document.createElement('button');
   toggleBtn.className = 'node-collapse-btn';
   toggleBtn.textContent = isCollapsed ? '▶' : '▼';
-  toggleBtn.title = isCollapsed ? 'Expand' : 'Collapse';
+  toggleBtn.title = isCollapsed ? T('nodeExpand') : T('nodeCollapse');
   toggleBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     toggleCollapse(entry.className, el, toggleBtn);
@@ -3229,7 +4091,7 @@ function _legacyCreateNodeEl(entry, opts = {}) {
     const m = document.createElement('div');
     m.className = 'node-method-name';
     m.textContent = trimSignature(sig);
-    m.title = sig + '\n(click to trace, ↗ to jump to source)';
+    m.title = sig + '\n' + T('methodTraceHint');
     const nameMatch = sig.match(/(\w+)\s*\(/);
     if (nameMatch) m.dataset.member = nameMatch[1];
     m.addEventListener('click', (e) => { e.stopPropagation(); enterTraceMode(entry, meta, row); });
@@ -3237,7 +4099,7 @@ function _legacyCreateNodeEl(entry, opts = {}) {
 
     const jumpIcon = document.createElement('span');
     jumpIcon.className = 'method-jump-icon';
-    jumpIcon.textContent = '↗'; jumpIcon.title = 'Jump to source';
+    jumpIcon.textContent = '↗'; jumpIcon.title = T('methodJumpTitle');
     jumpIcon.addEventListener('click', (e) => {
       e.stopPropagation();
       vscode.postMessage({ type: 'nodeClick', fileLocation: entry.fileLocation,
@@ -3282,7 +4144,7 @@ function _legacyCreateNodeEl(entry, opts = {}) {
   const pubAttrs  = allAttrs.filter(a => a.startsWith('+'));
   const privAttrs = allAttrs.filter(a => !a.startsWith('+'));
   if (opts.showAttributes && pubAttrs.length > 0) {
-    const {wrapper, secBody} = makeSection('Public Fields', pubAttrs.length, false);
+    const {wrapper, secBody} = makeSection(T('nodePublicFields'), pubAttrs.length, true);
     const aDiv = document.createElement('div'); aDiv.className = 'node-attributes';
     pubAttrs.forEach(l => aDiv.appendChild(buildAttrRow(l)));
     secBody.appendChild(aDiv); body.appendChild(wrapper);
@@ -3292,7 +4154,7 @@ function _legacyCreateNodeEl(entry, opts = {}) {
   const methods = entry.interfaces || [];
   const methodMeta = entry.interfaceMeta || [];
   if (opts.showMethods && methods.length > 0) {
-    const {wrapper, secBody} = makeSection('Public Methods', methods.length, false);
+    const {wrapper, secBody} = makeSection(T('nodePublicMethods'), methods.length, true);
     const mDiv = document.createElement('div'); mDiv.className = 'node-methods';
     methods.forEach((sig, idx) => mDiv.appendChild(buildMethodRow(sig, methodMeta[idx], false)));
     secBody.appendChild(mDiv); body.appendChild(wrapper);
@@ -3300,7 +4162,7 @@ function _legacyCreateNodeEl(entry, opts = {}) {
 
   // --- Section 3: Protected / Private Fields (gated by opts.showAttributes) ---
   if (opts.showAttributes && privAttrs.length > 0) {
-    const {wrapper, secBody} = makeSection('Private Fields', privAttrs.length, false);
+    const {wrapper, secBody} = makeSection(T('nodePrivateFields'), privAttrs.length, true);
     const aDiv = document.createElement('div'); aDiv.className = 'node-attributes';
     privAttrs.forEach(l => aDiv.appendChild(buildAttrRow(l)));
     secBody.appendChild(aDiv); body.appendChild(wrapper);
@@ -3309,7 +4171,7 @@ function _legacyCreateNodeEl(entry, opts = {}) {
   // --- Section 4: Private Methods (gated by opts.showPrivate) ---
   const privateMethods = entry.privateMethods || [];
   if (opts.showPrivate && privateMethods.length > 0) {
-    const {wrapper, secBody} = makeSection('Private Methods', privateMethods.length, false);
+    const {wrapper, secBody} = makeSection(T('nodePrivateMethods'), privateMethods.length, true);
     const mDiv = document.createElement('div'); mDiv.className = 'node-methods';
     privateMethods.forEach(pm => mDiv.appendChild(buildMethodRow(pm.signature, pm, true)));
     secBody.appendChild(mDiv); body.appendChild(wrapper);
@@ -3318,7 +4180,7 @@ function _legacyCreateNodeEl(entry, opts = {}) {
   // --- Aliases (P8-04) ---
   const aliases = entry.typeAliases || [];
   if (aliases.length > 0) {
-    const {wrapper, secBody} = makeSection('Aliases', aliases.length, false);
+    const {wrapper, secBody} = makeSection(T('nodeAliases'), aliases.length, true);
     const aDiv = document.createElement('div'); aDiv.className = 'node-methods';
     aliases.forEach(({ alias, canonical }) => {
       const row = document.createElement('div');
@@ -3407,31 +4269,37 @@ function _legacyCreateNodeEl(entry, opts = {}) {
   });
   el.addEventListener('mouseleave', hideTooltip);
 
+  if (!isCollapsed) el.classList.add('node-card-expanded');
+
   return el;
 }
 
 // UI-03/06: toggle collapse
 function toggleCollapse(className, el, btn) {
   const body = el.querySelector('.node-body');
-  if (collapsedNodes.has(className)) {
+  const wasCollapsed = collapsedNodes.has(className);
+  if (wasCollapsed) {
     collapsedNodes.delete(className);
     body.classList.add('expanded');
+    el.classList.add('node-card-expanded');
     btn.textContent = '▼';
-    btn.title = 'Collapse';
+    btn.title = T('nodeCollapse');
   } else {
     collapsedNodes.add(className);
     body.classList.remove('expanded');
+    el.classList.remove('node-card-expanded');
     btn.textContent = '▶';
-    btn.title = 'Expand';
+    btn.title = T('nodeExpand');
   }
-  // Update node height and redraw edges
   requestAnimationFrame(() => {
-    const n = nodes[className];
-    if (n) {
-      n.h = n.el.offsetHeight;
-      redrawEdges();
-      renderMinimap();
-    }
+    Object.values(nodes).forEach(n => {
+      if (n.el.style.display === 'none') return;
+      n.w = n.el.offsetWidth || n.w;
+      n.h = n.el.offsetHeight || n.h;
+    });
+    if (wasCollapsed) resolveOverlaps();
+    redrawEdges();
+    renderMinimap();
   });
 }
 
@@ -3671,7 +4539,7 @@ function refreshExpandBadges() {
     if (!entry) return;
     const n = countHiddenNeighbors(entry);
     badge.textContent = `+${n}`;
-    badge.title = `Expand ${n} connected class${n===1?'':'es'} not yet in view`;
+    badge.title = T('nodeExpandNeighbors', { n });
     badge.style.display = n > 0 ? 'inline-block' : 'none';
   });
   // Also refresh method-type badge in-canvas state
@@ -3756,6 +4624,7 @@ function addEntriesToCanvas(entries) {
   const NODE_W = 200;
 
   entries.forEach(entry => {
+    if (nodes[entry.className]) return;
     const pos = nodePositions[entry.className] || { x: 100, y: 100 };
     const el = createNodeEl(entry);
     el.classList.add('node-entering');
@@ -3767,13 +4636,14 @@ function addEntriesToCanvas(entries) {
     setTimeout(() => el.classList.remove('node-entering'), 300);
   });
 
-  // Re-measure heights and redraw
+  // Re-measure, separate overlaps (same as initial render — expanded cards are tall)
   requestAnimationFrame(() => {
-    entries.forEach(entry => {
-      const n = nodes[entry.className];
-      if (n) n.h = n.el.offsetHeight;
+    Object.values(nodes).forEach(n => {
+      if (n.el.style.display === 'none') return;
+      n.w = n.el.offsetWidth || n.w;
+      n.h = n.el.offsetHeight || n.h;
     });
-    // Redraw all edges (new nodes may connect to existing ones)
+    resolveOverlaps();
     const allVisible = Object.values(nodes).map(n => n.entry);
     const classSet = new Set(allVisible.map(e => e.className));
     const svgEl = document.getElementById('edges-svg');
@@ -3894,22 +4764,46 @@ function _filterEntries(pattern) {
   return { matched: allEntries.slice(0, VIEW_LIMIT), neighbors: [], isNsFilter: false };
 }
 
+/**
+ * nodes{} is keyed by className (short name). If visible[] contains two ClassEntry rows
+ * with the same className (different namespaces), renderAll would create two DOM cards
+ * but the second assignment overwrites nodes[name] — leaving an orphan duplicate on canvas.
+ */
+function dedupeVisibleByClassName(entries) {
+  const seen = new Set();
+  return entries.filter(e => {
+    if (seen.has(e.className)) return false;
+    seen.add(e.className);
+    return true;
+  });
+}
+
 function getVisibleEntries() {
   if (!allEntries.length) return [];
+  let raw;
   if (traceSubgraph !== null) {
-    return allEntries.filter(e => traceSubgraph.has(e.className));
+    raw = allEntries.filter(e => traceSubgraph.has(e.className));
+  } else {
+    const { matched, neighbors } = _filterEntries(filterRegex);
+    raw = filterRegex ? [...matched, ...neighbors] : matched;
   }
-  const { matched, neighbors } = _filterEntries(filterRegex);
-  if (filterRegex) return [...matched, ...neighbors];
-  return matched; // already sliced in _filterEntries
+  return dedupeVisibleByClassName(raw);
 }
 
 function applyFilter(pattern) {
+  const hadFilter = !!filterRegex;
   filterRegex = pattern || null;
   if (pattern && totalCount > 5000 && !pattern.startsWith('ns:')) {
     vscode.postMessage({ type: 'search', pattern });
+    updateFilterChrome();
     return;
   }
+  if (filterRegex) {
+    invalidatePositionsForCurrentView();
+  } else if (hadFilter) {
+    Object.keys(nodePositions).forEach(k => delete nodePositions[k]);
+  }
+  updateFilterChrome();
   renderAll();
 }
 
@@ -4026,8 +4920,9 @@ function enterTraceMode(entry, meta, rowEl) {
       'Possible reasons: method body not in parsed files, ' +
       'or only a declaration without definition.</span></div>';
     tracePanel.classList.add('visible');
-    // Request full call tree from extension (may have data via recursive lookup)
+    // Request full call tree + caller tree from extension
     vscode.postMessage({ type: 'requestCallTree', className: entry.className, methodSignature: sig });
+    vscode.postMessage({ type: 'requestCallerTree', className: entry.className, methodSignature: sig });
     return;
   }
 
@@ -4111,6 +5006,8 @@ function enterTraceMode(entry, meta, rowEl) {
 
   // M27-11: Request recursive call tree from extension
   vscode.postMessage({ type: 'requestCallTree', className: entry.className, methodSignature: sig });
+  // M28-06: Request reverse caller tree (who calls this method?)
+  vscode.postMessage({ type: 'requestCallerTree', className: entry.className, methodSignature: sig });
 }
 
 function selectNode(className) {
@@ -4160,6 +5057,15 @@ function selectNode(className) {
     else                           nodes[name].el.classList.add('dimmed');
   });
   showDetail(node.entry);
+  if (activeMode === 'trace') {
+    _traceFocalClass = className;
+    const tinp = document.getElementById('trace-cls-inp');
+    if (tinp && document.activeElement !== tinp) {
+      tinp.value = className;
+      _populateMethodSelect(className);
+    }
+    updateTraceImpactFocalHint();
+  }
   // P8-01: auto-expand hidden neighbors so all related classes appear on canvas
   if (countHiddenNeighbors(node.entry) > 0) {
     expandNeighbors(className);
@@ -4266,6 +5172,21 @@ window.addEventListener('keydown', (e) => {
 //  Node drag (UI-01)
 // ============================================================
 window.addEventListener('mousemove', e => {
+  if (minimapDrag && minimapGeo) {
+    const mm = document.getElementById('minimap');
+    const rect = mm.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const { offX, offY, scaleM } = minimapGeo;
+    const gwx = (mx - offX) / scaleM;
+    const gwy = (my - offY) / scaleM;
+    const nwl = gwx - minimapDrag.dwx;
+    const nwt = gwy - minimapDrag.dwy;
+    panX = -nwl * scale;
+    panY = -nwt * scale;
+    applyTransform();
+    return;
+  }
   // P7-02: node resize takes priority over drag / pan
   if (nodeResize) {
     const dx = (e.clientX - nodeResize.startMouseX) / scale;
@@ -4319,6 +5240,10 @@ window.addEventListener('mousemove', e => {
 });
 
 window.addEventListener('mouseup', e => {
+  if (minimapDrag) {
+    minimapDrag = null;
+    document.getElementById('minimap-viewport').classList.remove('minimap-dragging');
+  }
   if (nodeResize) {
     const n = nodes[nodeResize.className];
     if (n) {
@@ -4431,7 +5356,10 @@ function renderMinimap() {
   const ctx = cvs.getContext('2d');
   cvs.width  = mm.offsetWidth;
   cvs.height = mm.offsetHeight;
-  if (!Object.keys(nodes).length) return;
+  if (!Object.keys(nodes).length) {
+    minimapGeo = null;
+    return;
+  }
 
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   Object.values(nodes).forEach(n => {
@@ -4456,7 +5384,29 @@ function renderMinimap() {
   vp.style.top    = ((-panY / scale) * scaleM + offY) + 'px';
   vp.style.width  = ((cw / scale) * scaleM) + 'px';
   vp.style.height = ((ch / scale) * scaleM) + 'px';
+
+  minimapGeo = { offX, offY, scaleM };
 }
+
+(function setupMinimapViewportDrag() {
+  const vp = document.getElementById('minimap-viewport');
+  vp.addEventListener('mousedown', e => {
+    if (e.button !== 0 || !minimapGeo) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const mm = document.getElementById('minimap');
+    const rect = mm.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const { offX, offY, scaleM } = minimapGeo;
+    const wl = -panX / scale;
+    const wt = -panY / scale;
+    const gwx = (mx - offX) / scaleM;
+    const gwy = (my - offY) / scaleM;
+    minimapDrag = { dwx: gwx - wl, dwy: gwy - wt };
+    vp.classList.add('minimap-dragging');
+  });
+})();
 
 // ============================================================
 //  Export (UI-15)
@@ -4549,14 +5499,15 @@ function escSvg(s) {
 //  Info bar (UI-11)
 // ============================================================
 function updateInfoBar(visible, matched, total) {
-  let text = `${visible} class${visible === 1 ? '' : 'es'}`;
+  _lastInfoBar = { visible, matched, total };
+  let text = visible === 1 ? T('infoBarOneClass') : T('infoBarNClasses', { n: visible });
   if (filterRegex && matched < visible) {
-    text += ` (${matched} matched + ${visible - matched} neighbors)`;
+    text += T('infoBarMatched', { matched, rest: visible - matched });
   }
   if (total > allEntries.length) {
-    text += ` — searching ${total.toLocaleString()} total`;
+    text += T('infoBarSearchingTotal', { total: total.toLocaleString() });
   } else if (total > VIEW_LIMIT && !filterRegex) {
-    text += ` of ${total.toLocaleString()} — type to search`;
+    text += T('infoBarOfTotal', { total: total.toLocaleString() });
   }
   document.getElementById('info-bar').textContent = text;
 }
@@ -4577,10 +5528,15 @@ document.getElementById('btn-expand-all').addEventListener('click', () => {
     const body = n.el.querySelector('.node-body');
     const btn  = n.el.querySelector('.node-collapse-btn');
     if (body) body.classList.add('expanded');
-    if (btn)  { btn.textContent = '▼'; btn.title = 'Collapse'; }
+    n.el.classList.add('node-card-expanded');
+    if (btn)  { btn.textContent = '▼'; btn.title = T('nodeCollapse'); }
   });
   requestAnimationFrame(() => {
-    Object.values(nodes).forEach(n => { n.h = n.el.offsetHeight; });
+    Object.values(nodes).forEach(n => {
+      if (n.el.style.display === 'none') return;
+      n.w = n.el.offsetWidth || n.w;
+      n.h = n.el.offsetHeight || n.h;
+    });
     resolveOverlaps();
     redrawEdges(); renderMinimap();
   });
@@ -4592,19 +5548,52 @@ document.getElementById('btn-collapse-all').addEventListener('click', () => {
     const body = n.el.querySelector('.node-body');
     const btn  = n.el.querySelector('.node-collapse-btn');
     if (body) body.classList.remove('expanded');
-    if (btn)  { btn.textContent = '▶'; btn.title = 'Expand'; }
+    n.el.classList.remove('node-card-expanded');
+    if (btn)  { btn.textContent = '▶'; btn.title = T('nodeExpand'); }
   });
   requestAnimationFrame(() => {
-    Object.values(nodes).forEach(n => { n.h = n.el.offsetHeight; });
+    Object.values(nodes).forEach(n => {
+      if (n.el.style.display === 'none') return;
+      n.w = n.el.offsetWidth || n.w;
+      n.h = n.el.offsetHeight || n.h;
+    });
     redrawEdges(); renderMinimap();
   });
 });
 
 let _filterDebounceTimer = null;
+
+document.getElementById('btn-relayout').addEventListener('click', () => relayoutDiagram());
+
+document.getElementById('btn-filter-clear').addEventListener('click', () => {
+  clearTimeout(_filterDebounceTimer);
+  document.getElementById('filter-input').value = '';
+  traceSubgraph = null;
+  if (!filterRegex) {
+    Object.keys(nodePositions).forEach(k => delete nodePositions[k]);
+    updateFilterChrome();
+    renderAll();
+    return;
+  }
+  applyFilter('');
+});
+
 document.getElementById('filter-input').addEventListener('input', e => {
   const val = e.target.value;
   clearTimeout(_filterDebounceTimer);
   _filterDebounceTimer = setTimeout(() => applyFilter(val), 300);
+});
+document.getElementById('filter-input').addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    document.getElementById('btn-filter-clear').click();
+    return;
+  }
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    clearTimeout(_filterDebounceTimer);
+    applyFilter(e.target.value.trim());
+  }
 });
 
 document.getElementById('btn-layout-tb').addEventListener('click', function() {

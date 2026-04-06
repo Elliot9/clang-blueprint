@@ -13,6 +13,7 @@ import type { ClassEntry, CallStep, ChatMessage, RelevanceMatch, ModuleEntry, Mo
 import type { ExplorationPath } from '../analysis/explorationPath';
 import type { Flow } from '../analysis/flowBuilder';
 import type { CallTreeNode } from '../analysis/callTree';
+import type { CallerTreeNode } from '../analysis/callerIndex';
 
 // ---------------------------------------------------------------------------
 // Active application mode
@@ -182,6 +183,26 @@ export interface MsgCallPathExplanation {
   explanation: string;
 }
 
+/** Reverse caller tree result (M28-02) */
+export interface MsgCallerTreeResult {
+  type: 'callerTreeResult';
+  className: string;
+  methodSignature: string;
+  tree: CallerTreeNode;
+}
+
+/** Webview UI language (Traditional Chinese or English) */
+export interface MsgUiLocaleChanged {
+  type: 'uiLocaleChanged';
+  locale: 'zh-TW' | 'en';
+}
+
+/** Standalone chat popout: sync context class list from extension */
+export interface MsgChatPopoutInit {
+  type: 'chatPopoutInit';
+  selectedClasses: string[];
+}
+
 export type ExtensionToWebview =
   | MsgIndexLoaded
   | MsgModeChanged
@@ -205,11 +226,20 @@ export type ExtensionToWebview =
   | MsgKeyFlows
   | MsgFlowResult
   | MsgCallTreeResult
-  | MsgCallPathExplanation;
+  | MsgCallPathExplanation
+  | MsgCallerTreeResult
+  | MsgUiLocaleChanged
+  | MsgChatPopoutInit;
 
 // ---------------------------------------------------------------------------
 // Webview → Extension Host
 // ---------------------------------------------------------------------------
+
+/** Persist UI language to clangBlueprint.uiLocale */
+export interface WvSetUiLocale {
+  type: 'setUiLocale';
+  locale: 'zh-TW' | 'en';
+}
 
 /** Webview finished loading its scripts and is ready to receive data */
 export interface WvReady {
@@ -341,10 +371,24 @@ export interface WvRequestCallPathExplain {
   path: CallStep[];
 }
 
+/** Request reverse caller tree for a method (M28-02) */
+export interface WvRequestCallerTree {
+  type: 'requestCallerTree';
+  className: string;
+  methodSignature: string;
+  maxDepth?: number;
+}
+
 /** Canvas selection sync → chat context (M26-03) */
 export interface WvCanvasSelect {
   type: 'canvasSelect';
   className: string;
+}
+
+/** Open AI chat in a separate editor tab (same session as main webview) */
+export interface WvOpenChatPopout {
+  type: 'openChatPopout';
+  selectedClasses: string[];
 }
 
 export type WebviewToExtension =
@@ -368,4 +412,7 @@ export type WebviewToExtension =
   | WvFlowQuery
   | WvRequestCallTree
   | WvRequestCallPathExplain
-  | WvCanvasSelect;
+  | WvRequestCallerTree
+  | WvCanvasSelect
+  | WvSetUiLocale
+  | WvOpenChatPopout;
