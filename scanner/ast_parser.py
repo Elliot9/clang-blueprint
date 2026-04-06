@@ -690,6 +690,27 @@ class ASTVisitor:
             CursorKind.UNARY_OPERATOR,  # ++/-- on the member
         })
 
+        # M28-09: method names that mutate the container/object they're called on.
+        # When a FIELD_DECL is followed by one of these method calls, the field
+        # access should be classified as a write, not a read.
+        # e.g. map_field.emplace(...) → field write, not read.
+        _MUTATING_METHODS = frozenset({
+            # insertion
+            "emplace", "emplace_back", "emplace_front", "emplace_hint",
+            "push_back", "push_front", "push", "enqueue",
+            "insert", "insert_or_assign", "try_emplace",
+            # removal
+            "erase", "pop", "pop_back", "pop_front", "clear",
+            "remove", "remove_if",
+            # modification
+            "swap", "assign", "resize", "replace",
+            "reset", "release",
+            "set_value", "store",
+            "append", "add", "put",
+            # operator-like
+            "operator=",
+        })
+
         # Track CALL_EXPR locations already handled via MEMBER_REF_EXPR
         # to avoid double-recording `obj.method()` calls
         member_call_locations: set[tuple[str, int, int]] = set()
@@ -705,6 +726,16 @@ class ASTVisitor:
                     children = list(parent.get_children())
                     if children and children[0].location == c.location:
                         return True
+                except Exception:
+                    pass
+            # M28-09: field.mutating_method() — parent is MEMBER_REF_EXPR
+            # for the method call; if the method name is known-mutating, it's a write.
+            if parent.kind == CursorKind.MEMBER_REF_EXPR:
+                try:
+                    ref = parent.referenced
+                    if ref and ref.kind == CursorKind.CXX_METHOD:
+                        if (ref.spelling or "") in _MUTATING_METHODS:
+                            return True
                 except Exception:
                     pass
             return False
