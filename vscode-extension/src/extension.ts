@@ -7,14 +7,17 @@
 
 import * as vscode from 'vscode';
 import { AppShell } from './shell/AppShell';
+import { WikiPanel } from './shell/WikiPanel';
 
 let shell: AppShell | undefined;
+let wikiPanel: WikiPanel | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
   const activationStart = Date.now();
 
   shell = new AppShell(context);
   shell.setupWatcher();
+  wikiPanel = new WikiPanel(context);
 
   // Re-create watcher when workspace config changes
   context.subscriptions.push(
@@ -99,6 +102,13 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
+  // ---- showWiki ----
+  context.subscriptions.push(
+    vscode.commands.registerCommand('clangBlueprint.showWiki', () => {
+      wikiPanel?.show();
+    }),
+  );
+
   // ---- openSettings ----
   context.subscriptions.push(
     vscode.commands.registerCommand('clangBlueprint.openSettings', () => {
@@ -134,4 +144,5 @@ export function activate(context: vscode.ExtensionContext): void {
 export function deactivate(): void {
   shell?.dispose();
   shell = undefined;
+  wikiPanel = undefined;
 }

@@ -62,18 +62,23 @@ class BlueprintEntry:
     typeAliases: list[dict] = field(default_factory=list)    # [{alias, canonical, depType}]
     # P10-01: protected/private methods (public ones stay in interfaces/interfaceMeta)
     privateMethods: list[dict] = field(default_factory=list)  # [{signature, lineNumber, access, usedTypes, callSequence}]
+    # Semantic enrichment — populated by heuristic enricher or LLM post-processing
+    intent: Optional[str] = None            # one-line description of why this class exists
+    designPattern: Optional[str] = None     # detected pattern: Singleton, Factory, Observer, etc.
+    tradeoffs: Optional[str] = None         # known design trade-offs or constraints
+    changeRisk: Optional[str] = None        # 'low' | 'medium' | 'high'
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d: dict[str, Any] = {
             "className": self.className,
             "responsibility": self.responsibility,
             "dependencies": [
                 {
-                    "target": d.target,
-                    "type": d.type,
-                    **({"cardinality": d.cardinality} if d.cardinality else {}),
+                    "target": dep.target,
+                    "type": dep.type,
+                    **({"cardinality": dep.cardinality} if dep.cardinality else {}),
                 }
-                for d in self.dependencies
+                for dep in self.dependencies
             ],
             "attributes": self.attributes,
             "interfaces": self.interfaces,
@@ -86,6 +91,15 @@ class BlueprintEntry:
             "baseClasses": self.baseClasses,
             "templateParams": self.templateParams,
         }
+        if self.intent is not None:
+            d["intent"] = self.intent
+        if self.designPattern is not None:
+            d["designPattern"] = self.designPattern
+        if self.tradeoffs is not None:
+            d["tradeoffs"] = self.tradeoffs
+        if self.changeRisk is not None:
+            d["changeRisk"] = self.changeRisk
+        return d
 
 
 # ---------------------------------------------------------------------------

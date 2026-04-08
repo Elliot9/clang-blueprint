@@ -115,6 +115,10 @@ def cmd_scan(args: argparse.Namespace) -> int:
     graph_output = args.graph_output or graph_path_for(output_path)
     write_graph(graph, graph_output)
 
+    # Semantic enrichment: heuristic inference of intent, designPattern, changeRisk
+    from scanner.semantic_enricher import enrich as semantic_enrich
+    semantic_enrich(entries)
+
     # P21: build module layer + entry points → v2 index
     from scanner.module_grouper import build_modules
     from scanner.entry_detector import detect_entry_points

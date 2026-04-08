@@ -69,6 +69,12 @@ export interface ClassEntry {
 
   // Type aliases discovered in this class (P8-04)
   typeAliases?: Array<{ alias: string; canonical: string; depType?: string }>;
+
+  // Semantic enrichment — populated by heuristic enricher or LLM post-processing
+  intent?: string;               // one-line description of why this class exists
+  designPattern?: string;        // detected pattern: Singleton, Factory, Observer, etc.
+  tradeoffs?: string;            // known design trade-offs or constraints
+  changeRisk?: 'low' | 'medium' | 'high'; // estimated impact risk when modifying
 }
 
 // ---------------------------------------------------------------------------
