@@ -90,16 +90,12 @@ class BlueprintEntry:
             "namespace": self.namespace,
             "baseClasses": self.baseClasses,
             "templateParams": self.templateParams,
-            "intent": self.intent,
-            "tradeoffs": self.tradeoffs,
-            "changeRisk": self.changeRisk,
-            "designPattern": self.designPattern,
         }
         if self.intent is not None:
             d["intent"] = self.intent
         if self.designPattern is not None:
             d["designPattern"] = self.designPattern
-        if self.tradeoffs is not None:
+        if self.tradeoffs:
             d["tradeoffs"] = self.tradeoffs
         if self.changeRisk is not None:
             d["changeRisk"] = self.changeRisk

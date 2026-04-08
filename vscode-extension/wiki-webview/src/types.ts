@@ -20,7 +20,7 @@ export interface ClassEntry {
   // semantic enrichment
   intent?: string;
   designPattern?: string;
-  tradeoffs?: string;
+  tradeoffs?: string[];
   changeRisk?: 'low' | 'medium' | 'high';
 }
 

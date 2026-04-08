@@ -91,10 +91,10 @@ export function ClassPage({ cls, index, onNavigate }: Props) {
             ↗ {cls.fileLocation}:{cls.lineNumber}
           </button>
         </div>
-        {cls.tradeoffs && (
+        {cls.tradeoffs && cls.tradeoffs.length > 0 && (
           <div class="tradeoffs-box">
             <span class="tradeoffs-label">Trade-offs</span>
-            <span>{cls.tradeoffs}</span>
+            <ul>{cls.tradeoffs.map(t => <li>{t}</li>)}</ul>
           </div>
         )}
       </section>
