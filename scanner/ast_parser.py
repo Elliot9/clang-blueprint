@@ -62,6 +62,11 @@ class BlueprintEntry:
     typeAliases: list[dict] = field(default_factory=list)    # [{alias, canonical, depType}]
     # P10-01: protected/private methods (public ones stay in interfaces/interfaceMeta)
     privateMethods: list[dict] = field(default_factory=list)  # [{signature, lineNumber, access, usedTypes, callSequence}]
+    # M28-01: semantic enrichment fields (populated by SemanticEnricher, default null)
+    intent: Optional[str] = None
+    tradeoffs: list[str] = field(default_factory=list)
+    changeRisk: Optional[str] = None   # "high" | "medium" | "low"
+    designPattern: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -85,6 +90,10 @@ class BlueprintEntry:
             "namespace": self.namespace,
             "baseClasses": self.baseClasses,
             "templateParams": self.templateParams,
+            "intent": self.intent,
+            "tradeoffs": self.tradeoffs,
+            "changeRisk": self.changeRisk,
+            "designPattern": self.designPattern,
         }
 
 

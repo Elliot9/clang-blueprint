@@ -1286,6 +1286,19 @@
     .impact-class:hover { color: #4fc3f7; }
     .impact-class.indirect { color: #888; }
     .impact-class.indirect:hover { color: #d4d4d4; }
+    /* M28-05: changeRisk badge */
+    .risk-badge {
+      display: inline-block; font-size: 9px; font-weight: 600; letter-spacing: 0.04em;
+      padding: 1px 5px; border-radius: 3px; vertical-align: middle; margin-left: 5px;
+    }
+    .risk-badge.high   { background: rgba(244,71,71,0.18);  color: #f44747; }
+    .risk-badge.medium { background: rgba(215,186,0,0.18);  color: #d7ba00; }
+    .risk-badge.low    { background: rgba(78,201,176,0.18); color: #4ec9b0; }
+    /* M28-05: designPattern badge in tooltip */
+    .pattern-badge {
+      display: inline-block; font-size: 9px; padding: 1px 4px; border-radius: 3px;
+      background: rgba(197,134,192,0.18); color: #c586c0; margin-left: 4px;
+    }
     .trace-focal-hint {
       font-size: 10px;
       line-height: 1.35;
@@ -2469,15 +2482,23 @@ function _showSummary(msg) {
   if (activeMode !== 'explore') return;
   const el = document.getElementById('explore-primary-content');
   if (!el) return;
-  const intent = _esc(msg.intent || '—');
+  // M28-05: prefer pre-computed entry.intent from semantic enricher, fall back to provider summary
+  const entry = allEntries.find(e => e.className === msg.className);
+  const intentText = (entry && entry.intent) || msg.intent || '—';
+  const intent = _esc(intentText);
   const resps  = (msg.responsibilities || []).map(r => `<div class="summary-item">• ${_esc(r)}</div>`).join('');
   const mkLinks = arr => (arr || []).map(c =>
     `<span class="summary-link" onclick="_nsClassClick('${_esc(c)}')">${_esc(c)}</span>`).join(', ');
   const cx = document.getElementById('explore-context-line');
-  if (cx) cx.textContent = msg.className ? `${msg.className}` : intent;
+  if (cx) cx.textContent = msg.className ? `${msg.className}` : intentText;
+  // M28-05: risk badge in summary header
+  const risk = entry && entry.changeRisk;
+  const riskBadge = risk
+    ? `<span class="risk-badge ${_esc(risk)}" style="margin-left:6px">${_esc(risk.toUpperCase())}</span>`
+    : '';
   el.className = '';
   el.innerHTML = `
-    <div class="summary-intent">${intent}</div>
+    <div class="summary-intent">${intent}${riskBadge}</div>
     ${resps ? `<div class="summary-section"><div class="summary-section-title">${_esc(T('summaryMethods'))}</div>${resps}</div>` : ''}
     ${msg.usedBy?.length  ? `<div class="summary-section"><div class="summary-section-title">${_esc(T('summaryUsedBy'))}</div><div class="summary-item">${mkLinks(msg.usedBy)}</div></div>` : ''}
     ${msg.dependsOn?.length ? `<div class="summary-section"><div class="summary-section-title">${_esc(T('summaryDependsOn'))}</div><div class="summary-item">${mkLinks(msg.dependsOn)}</div></div>` : ''}`;
@@ -2572,7 +2593,13 @@ function updateTraceImpactFocalHint() {
   if (!el) return;
   if (_traceFocalClass) {
     el.classList.remove('empty');
-    el.textContent = T('traceImpactFocal', { cn: _traceFocalClass });
+    // M28-05: show changeRisk badge if entry has it
+    const focalEntry = allEntries.find(e => e.className === _traceFocalClass);
+    const risk = focalEntry && focalEntry.changeRisk;
+    const riskBadge = risk
+      ? ` <span class="risk-badge ${_esc(risk)}">${_esc(risk.toUpperCase())}</span>`
+      : '';
+    el.innerHTML = _esc(T('traceImpactFocal', { cn: _traceFocalClass })) + riskBadge;
     if (cx) cx.textContent = `${_traceFocalClass}${_traceFocalMethod ? ` :: ${_traceFocalMethod}` : ''}`;
   } else {
     el.classList.add('empty');
@@ -5294,15 +5321,21 @@ function _legacyCreateNodeEl(entry, opts = {}) {
     el.classList.add('resized');
   }
 
-  // M26-01: Rich hover tooltip
+  // M26-01 / M28-05: Rich hover tooltip with semantic fields
   el.addEventListener('mouseenter', (e) => {
-    const intent = entry.responsibility || entry.className;
+    const intent = entry.intent || entry.responsibility || entry.className;
     const depCount = (entry.dependencies || []).length;
     const bases = (entry.baseClasses || []).join(', ');
-    let html = `<div style="max-width:280px">`;
-    html += `<div style="color:#4ec9b0;font-weight:600;margin-bottom:3px;">${entry.namespace ? entry.namespace + '::' : ''}${entry.className}</div>`;
-    html += `<div style="color:#aaa;font-size:10px;margin-bottom:4px;">${intent}</div>`;
-    if (bases) html += `<div style="color:#c586c0;font-size:10px;">extends ${bases}</div>`;
+    const risk = entry.changeRisk;
+    const pattern = entry.designPattern;
+    let html = `<div style="max-width:300px">`;
+    html += `<div style="color:#4ec9b0;font-weight:600;margin-bottom:3px;">`;
+    html += `${entry.namespace ? entry.namespace + '::' : ''}${entry.className}`;
+    if (risk) html += ` <span class="risk-badge ${_esc(risk)}">${_esc(risk.toUpperCase())}</span>`;
+    if (pattern) html += ` <span class="pattern-badge">${_esc(pattern)}</span>`;
+    html += `</div>`;
+    html += `<div style="color:#aaa;font-size:10px;margin-bottom:4px;">${_esc(intent)}</div>`;
+    if (bases) html += `<div style="color:#c586c0;font-size:10px;">extends ${_esc(bases)}</div>`;
     if (depCount) html += `<div style="color:#888;font-size:10px;">${depCount} dependencies</div>`;
     html += `<div style="color:#555;font-size:9px;margin-top:4px;">Click to explore · Double-click to jump to source</div>`;
     html += '</div>';

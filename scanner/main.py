@@ -125,8 +125,35 @@ def cmd_scan(args: argparse.Namespace) -> int:
         entries, entry_points=entry_points, reverse_deps=reverse_deps
     )
 
+    # M28-04: heuristic semantic enrichment (always, no API key needed)
+    from scanner.semantic_enricher import enrich_all_heuristic, enrich_all_llm
+    enrich_all_heuristic(entries, reverse_deps)
+
+    # LLM enrichment (opt-in)
+    if getattr(args, "enrich_llm", False):
+        anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+        gemini_key = os.environ.get("GEMINI_API_KEY")
+        if not anthropic_key and not gemini_key:
+            print(
+                "WARNING: --enrich-llm requires ANTHROPIC_API_KEY or GEMINI_API_KEY env var. "
+                "Heuristic enrichment already applied.",
+                file=sys.stderr,
+            )
+        else:
+            sem_cache = os.path.join(os.path.dirname(output_path), ".blueprint_semantic_cache.json")
+            total, llm_n, cached_n = enrich_all_llm(
+                entries, reverse_deps,
+                cache_path=sem_cache,
+                anthropic_api_key=anthropic_key,
+                gemini_api_key=gemini_key,
+            )
+            print(
+                f"[blueprint] Semantic enrichment complete — "
+                f"LLM: {llm_n}, cached: {cached_n}, total: {total}"
+            )
+
     v2_index: dict[str, Any] = {
-        "version": 2,
+        "version": 3,
         "generatedAt": graph.get("generatedAt", ""),
         "projectName": os.path.basename(project_root),
         "modules": modules,
@@ -209,6 +236,74 @@ def cmd_diagram(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_enrich(args: argparse.Namespace) -> int:
+    """Handle the `enrich` subcommand — add semantic fields to an existing index."""
+    input_path = args.input or "blueprint_index.json"
+    if not os.path.isfile(input_path):
+        print(f"ERROR: Blueprint index not found: {input_path}", file=sys.stderr)
+        print("Run `blueprint scan` first to generate the index.", file=sys.stderr)
+        return 1
+
+    raw = _load_json(input_path)
+    if isinstance(raw, list):
+        entries = raw
+        reverse_deps: dict = {}
+    else:
+        entries = raw.get("classes", [])
+        # Try to load reverse deps from graph file
+        graph_file = os.path.join(os.path.dirname(os.path.abspath(input_path)), "blueprint_graph.json")
+        if os.path.isfile(graph_file):
+            g = _load_json(graph_file)
+            reverse_deps = g.get("reverseDeps", {})
+        else:
+            reverse_deps = {}
+
+    from scanner.semantic_enricher import enrich_all_heuristic, enrich_all_llm
+
+    use_llm = getattr(args, "llm", False)
+    if use_llm:
+        anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+        gemini_key = os.environ.get("GEMINI_API_KEY")
+        if not anthropic_key and not gemini_key:
+            print(
+                "WARNING: --llm requires ANTHROPIC_API_KEY or GEMINI_API_KEY. "
+                "Falling back to heuristic.",
+                file=sys.stderr,
+            )
+            use_llm = False
+
+    enrich_all_heuristic(entries, reverse_deps)
+
+    llm_n = cached_n = 0
+    if use_llm:
+        sem_cache = os.path.join(
+            os.path.dirname(os.path.abspath(input_path)),
+            ".blueprint_semantic_cache.json",
+        )
+        total, llm_n, cached_n = enrich_all_llm(
+            entries, reverse_deps,
+            cache_path=sem_cache,
+            anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY"),
+            gemini_api_key=os.environ.get("GEMINI_API_KEY"),
+        )
+        print(
+            f"[blueprint] LLM enrichment: {llm_n} new, {cached_n} cached, {total} total"
+        )
+    else:
+        print(
+            f"[blueprint] Heuristic enrichment: {len(entries)} classes "
+            f"(heuristic: {len(entries)}, llm: 0)"
+        )
+
+    if isinstance(raw, list):
+        _save_json(input_path, entries)
+    else:
+        raw["version"] = 3
+        _save_json(input_path, raw)
+
+    return 0
+
+
 def cmd_cache_stats(args: argparse.Namespace) -> int:
     """Show incremental cache statistics."""
     from scanner.incremental import get_cache_stats, DEFAULT_CACHE_NAME
@@ -276,6 +371,30 @@ def build_parser() -> argparse.ArgumentParser:
         "--graph-output",
         help="Output path for blueprint_graph.json (default: same directory as --output)",
     )
+    scan_parser.add_argument(
+        "--enrich-llm",
+        action="store_true",
+        dest="enrich_llm",
+        help=(
+            "After scanning, enrich semantic fields via LLM (requires ANTHROPIC_API_KEY "
+            "or GEMINI_API_KEY). Heuristic enrichment always runs regardless of this flag."
+        ),
+    )
+
+    # --- enrich ---
+    enrich_parser = subparsers.add_parser(
+        "enrich",
+        help="Add/update semantic fields (intent, tradeoffs, changeRisk, designPattern) on an existing index",
+    )
+    enrich_parser.add_argument(
+        "--input", "-i",
+        help="Path to blueprint_index.json (default: ./blueprint_index.json)",
+    )
+    enrich_parser.add_argument(
+        "--llm",
+        action="store_true",
+        help="Use LLM enrichment (requires ANTHROPIC_API_KEY or GEMINI_API_KEY)",
+    )
 
     # --- diagram ---
     diag_parser = subparsers.add_parser(
@@ -335,6 +454,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     dispatch = {
         "scan": cmd_scan,
         "diagram": cmd_diagram,
+        "enrich": cmd_enrich,
         "cache-stats": cmd_cache_stats,
     }
 
