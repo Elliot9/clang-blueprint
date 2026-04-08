@@ -59,19 +59,28 @@ export class AppShell {
     chat: undefined,
   };
 
+  /** Standalone AI Chat webview tab (optional). */
+  private chatPopoutPanel: vscode.WebviewPanel | undefined;
+  /** Context class names to send to the popout on first load / reveal. */
+  private pendingChatPopoutContext: string[] = [];
+
   constructor(private readonly context: vscode.ExtensionContext) {
     this.output = vscode.window.createOutputChannel('Clang Blueprint');
     this.context.subscriptions.push(this.output);
     this.context.subscriptions.push(
       vscode.workspace.onDidChangeConfiguration((event) => {
-        if (
-          !event.affectsConfiguration('clangBlueprint.analysisProvider') &&
-          !event.affectsConfiguration('clangBlueprint.claudeApiKey') &&
-          !event.affectsConfiguration('clangBlueprint.geminiApiKey')
-        ) {
-          return;
+        if (event.affectsConfiguration('clangBlueprint.uiLocale')) {
+          const raw = cfg<string>('uiLocale') ?? 'zh-TW';
+          const loc = raw === 'en' ? 'en' : 'zh-TW';
+          this._post({ type: 'uiLocaleChanged', locale: loc });
         }
-        void this._recreateProviderIfNeeded();
+        if (
+          event.affectsConfiguration('clangBlueprint.analysisProvider') ||
+          event.affectsConfiguration('clangBlueprint.claudeApiKey') ||
+          event.affectsConfiguration('clangBlueprint.geminiApiKey')
+        ) {
+          void this._recreateProviderIfNeeded();
+        }
       }),
     );
   }
@@ -102,11 +111,13 @@ export class AppShell {
 
     this.panel.webview.html = this._getWebviewHtml();
     this.panel.webview.onDidReceiveMessage(
-      (msg: WebviewToExtension) => this._onMessage(msg),
+      (msg: WebviewToExtension) => this._onMessage(msg, this.panel!.webview),
       undefined,
       this.context.subscriptions,
     );
     this.panel.onDidDispose(() => {
+      this.chatPopoutPanel?.dispose();
+      this.chatPopoutPanel = undefined;
       this.controllers.explore?.deactivate();
       this.controllers.trace?.deactivate();
       this.controllers.chat?.deactivate();
@@ -216,11 +227,25 @@ export class AppShell {
   // Private: message routing
   // ---------------------------------------------------------------------------
 
-  private _onMessage(msg: WebviewToExtension): void {
+  private _onMessage(msg: WebviewToExtension, fromWebview?: vscode.Webview): void {
     // Shell-level messages: handled here, not routed to controllers
     switch (msg.type) {
       case 'ready':
-        this._reload();
+        if (fromWebview && this.chatPopoutPanel && fromWebview === this.chatPopoutPanel.webview) {
+          void this._bootstrapChatPopout();
+          return;
+        }
+        void this._reload();
+        return;
+
+      case 'openChatPopout':
+        void this._openChatPopout(msg.selectedClasses);
+        return;
+
+      case 'chatMessage':
+      case 'contextUpdate':
+        this._ensureChatControllerReady();
+        this.controllers.chat?.handleMessage(msg);
         return;
 
       case 'modeSwitch':
@@ -248,6 +273,14 @@ export class AppShell {
       case 'error':
         vscode.window.showErrorMessage(`Blueprint webview error: ${msg.message}`);
         return;
+
+      case 'setUiLocale': {
+        const loc = msg.locale === 'en' ? 'en' : 'zh-TW';
+        void vscode.workspace
+          .getConfiguration('clangBlueprint')
+          .update('uiLocale', loc, vscode.ConfigurationTarget.Global);
+        return;
+      }
 
       case 'canvasSelect':
         // M26-03: forward canvas selection to chat controller's context
@@ -286,6 +319,16 @@ export class AppShell {
     this._post({ type: 'modeChanged', mode });
   }
 
+  /** Drop controller references only after deactivate() so in-flight async work stops posting to the webview. */
+  private _disposeControllers(): void {
+    this.controllers.explore?.deactivate();
+    this.controllers.trace?.deactivate();
+    this.controllers.chat?.deactivate();
+    this.controllers.explore = undefined;
+    this.controllers.trace = undefined;
+    this.controllers.chat = undefined;
+  }
+
   private async _recreateProviderIfNeeded(): Promise<void> {
     const nextSig = this._providerSignature();
     if (nextSig === this.providerConfigSignature) { return; }
@@ -293,9 +336,7 @@ export class AppShell {
     this.provider = await createProvider();
     this.providerConfigSignature = nextSig;
     this._log(`Provider reloaded from settings: ${this.provider.providerId}`);
-    this.controllers.explore = undefined;
-    this.controllers.trace = undefined;
-    this.controllers.chat = undefined;
+    this._disposeControllers();
 
     if (this.panel) {
       await this._reload();
@@ -318,6 +359,7 @@ export class AppShell {
 
     // Rebuild controllers with fresh data
     if (this.provider) {
+      this._disposeControllers();
       this.controllers.explore = new ExploreController(this.provider, entries, this.allModules, this.moduleEdges, this.entryPoints);
       this.controllers.trace   = new TraceController(this.provider, entries, this.reverseDeps, this.allModules);
       this.controllers.chat    = new ChatController(this.provider, entries, (line: string) => this._log(line));
@@ -360,6 +402,12 @@ export class AppShell {
       );
     } else {
       panel.title = `Blueprint: Class Diagram (${entries.length} classes)`;
+    }
+
+    if (this.chatPopoutPanel) {
+      (this.controllers.chat as ChatController | undefined)?.registerPopoutWebview(
+        this.chatPopoutPanel.webview,
+      );
     }
   }
 
@@ -502,6 +550,123 @@ export class AppShell {
 
   private _post(msg: ExtensionToWebview): void {
     this.panel?.webview.postMessage(msg);
+    this._mirrorDataToChatPopout(msg);
+  }
+
+  /** Keep the optional chat popout index/modules in sync with the main diagram tab. */
+  private _mirrorDataToChatPopout(msg: ExtensionToWebview): void {
+    const w = this.chatPopoutPanel?.webview;
+    if (!w) { return; }
+    const t = (msg as { type: string }).type;
+    const syncTypes = new Set([
+      'indexLoaded',
+      'modulesLoaded',
+      'layoutDirection',
+      'explorationPath',
+      'keyFlows',
+      'uiLocaleChanged',
+    ]);
+    if (syncTypes.has(t)) {
+      void w.postMessage(msg);
+    }
+  }
+
+  private _ensureChatControllerReady(): void {
+    const panel = this.panel;
+    if (!panel || !this.provider) { return; }
+    if (!this.controllers.chat) {
+      this.controllers.chat = new ChatController(this.provider, this.allEntries, (line: string) => this._log(line));
+    }
+    this.controllers.chat.activate(panel);
+  }
+
+  private async _openChatPopout(selectedClasses: string[]): Promise<void> {
+    this.pendingChatPopoutContext = [...selectedClasses];
+    if (!this.panel) {
+      await this.showDiagram();
+    }
+    if (!this.panel || !this.provider) {
+      vscode.window.showWarningMessage('Clang Blueprint: Open the class diagram first.');
+      return;
+    }
+    this._ensureChatControllerReady();
+
+    if (this.chatPopoutPanel) {
+      this.chatPopoutPanel.reveal(vscode.ViewColumn.One);
+      (this.controllers.chat as ChatController).registerPopoutWebview(this.chatPopoutPanel.webview);
+      void this.chatPopoutPanel.webview.postMessage({
+        type: 'chatPopoutInit',
+        selectedClasses: this.pendingChatPopoutContext,
+      });
+      return;
+    }
+
+    const pop = vscode.window.createWebviewPanel(
+      'clangBlueprintChatPopout',
+      'Blueprint: AI Chat',
+      vscode.ViewColumn.One,
+      {
+        enableScripts: true,
+        retainContextWhenHidden: true,
+        localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'webview')],
+      },
+    );
+    this.chatPopoutPanel = pop;
+    pop.webview.html = this._getWebviewHtml(true);
+    pop.webview.onDidReceiveMessage(
+      (m: WebviewToExtension) => this._onMessage(m, pop.webview),
+      undefined,
+      this.context.subscriptions,
+    );
+    pop.onDidDispose(
+      () => {
+        (this.controllers.chat as ChatController | undefined)?.registerPopoutWebview(undefined);
+        this.chatPopoutPanel = undefined;
+      },
+      undefined,
+      this.context.subscriptions,
+    );
+  }
+
+  private async _bootstrapChatPopout(): Promise<void> {
+    const pop = this.chatPopoutPanel;
+    if (!pop) { return; }
+    this._ensureChatControllerReady();
+    (this.controllers.chat as ChatController).registerPopoutWebview(pop.webview);
+
+    const maxClasses = cfg<number>('maxClassesInDiagram') ?? 100;
+    const entries = this.allEntries;
+    const send = entries.length > 5000 ? entries.slice(0, maxClasses) : entries;
+
+    void pop.webview.postMessage({
+      type: 'indexLoaded',
+      entries: send,
+      totalCount: entries.length,
+    });
+    void pop.webview.postMessage({
+      type: 'layoutDirection',
+      direction: cfg<'TB' | 'LR' | 'BT' | 'RL'>('layoutDirection') ?? 'TB',
+    });
+    void pop.webview.postMessage({ type: 'modeChanged', mode: 'chat' });
+    void pop.webview.postMessage({
+      type: 'chatPopoutInit',
+      selectedClasses: this.pendingChatPopoutContext,
+    });
+    this.pendingChatPopoutContext = [];
+
+    const raw = cfg<string>('uiLocale') ?? 'zh-TW';
+    const loc = raw === 'en' ? 'en' : 'zh-TW';
+    void pop.webview.postMessage({ type: 'uiLocaleChanged', locale: loc });
+
+    if (this.allModules.length > 0) {
+      void pop.webview.postMessage({
+        type: 'modulesLoaded',
+        modules: this.allModules,
+        moduleEdges: this.moduleEdges,
+        entryPoints: this.entryPoints,
+        projectName: this.projectName,
+      });
+    }
   }
 
   private _log(line: string): void {
@@ -535,10 +700,26 @@ export class AppShell {
     }
   }
 
-  private _getWebviewHtml(): string {
+  private _getWebviewHtml(chatPopout = false): string {
     const htmlPath = vscode.Uri.joinPath(this.context.extensionUri, 'webview', 'index.html');
+    const i18nPath = vscode.Uri.joinPath(this.context.extensionUri, 'webview', 'i18n-bundle.js');
     try {
-      return fs.readFileSync(htmlPath.fsPath, 'utf-8');
+      let html = fs.readFileSync(htmlPath.fsPath, 'utf-8');
+      let bundle = '';
+      try {
+        bundle = fs.readFileSync(i18nPath.fsPath, 'utf-8');
+      } catch {
+        bundle = "window.BLUEPRINT_I18N={ 'zh-TW':{}, en:{} };";
+      }
+      const raw = vscode.workspace.getConfiguration('clangBlueprint').get<string>('uiLocale') ?? 'zh-TW';
+      const safeLoc = raw === 'en' ? 'en' : 'zh-TW';
+      const popoutFlag = chatPopout ? "window.__BLUEPRINT_CHAT_POPOUT__=true;\n" : '';
+      const inject = `window.__BLUEPRINT_UI_LOCALE__='${safeLoc}';\n${popoutFlag}${bundle}\n\n`;
+      const needle = '<script>\n// ╔══════════════════════════════════════════════════════════════╗';
+      if (html.includes(needle)) {
+        html = html.replace(needle, `<script>\n${inject}// ╔══════════════════════════════════════════════════════════════╗`);
+      }
+      return html;
     } catch {
       return `<!DOCTYPE html><html><body style="background:#1e1e1e;color:#ccc;padding:2rem;">
         <h2>Clang Blueprint</h2><p>Webview HTML not found.</p></body></html>`;

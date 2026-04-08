@@ -20,20 +20,46 @@ import type {
 } from '../shared/types';
 import { LocalAnalysisProvider } from './LocalAnalysisProvider';
 
-// Prefer newer models first; fall back to older ones for compatibility.
+// Prefer current stable IDs (see https://ai.google.dev/gemini-api/docs/models/gemini ).
+// Gemini 1.5 models return 404 on many v1beta keys — do not rely on them.
 const FAST_MODEL_CANDIDATES = [
   'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
+  'gemini-flash-latest',
+  'gemini-3-flash-preview',
   'gemini-2.0-flash',
-  'gemini-1.5-flash',
 ] as const;
 
 const CHAT_MODEL_CANDIDATES = [
-  'gemini-2.5-pro',
   'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
+  'gemini-2.5-pro',
+  'gemini-flash-latest',
+  'gemini-3-flash-preview',
   'gemini-2.0-flash',
-  'gemini-1.5-pro',
-  'gemini-1.5-flash',
 ] as const;
+
+/** Build a user-visible error from per-model failures (429 vs 404 vs other). */
+function _formatGeminiFailureSummary(failures: string[]): string {
+  const blob = failures.join('\n');
+  const is429 =
+    /\b429\b|Too Many Requests|quota exceeded|exceeded your current quota|rate.limit|free_tier/i.test(blob);
+  const is404 = /\b404\b|not found|NOT_FOUND/i.test(blob);
+
+  let headline: string;
+  if (is429) {
+    headline =
+      'Gemini: quota or rate limit hit (message below often shows free-tier caps, e.g. requests per minute). ' +
+      'Wait and retry, check billing/plan, or set analysis provider to Local. ' +
+      'See https://ai.google.dev/gemini-api/docs/rate-limits';
+  } else if (is404) {
+    headline =
+      'Gemini: model not found (404) — model ID may be wrong or not enabled for this API key / project.';
+  } else {
+    headline = 'Gemini: every candidate model failed; details per model:';
+  }
+  return `${headline}\n\n${failures.join('\n')}`;
+}
 
 // ---------------------------------------------------------------------------
 // Helpers (shared with ClaudeAnalysisProvider logic)
@@ -238,7 +264,7 @@ export class GeminiAnalysisProvider implements IAnalysisProvider {
     }));
     const lastMessage = nonSystem[nonSystem.length - 1]?.content ?? '';
 
-    let lastError: unknown;
+    const failures: string[] = [];
     for (const modelName of CHAT_MODEL_CANDIDATES) {
       try {
         const model = this.genAI.getGenerativeModel({
@@ -254,27 +280,29 @@ export class GeminiAnalysisProvider implements IAnalysisProvider {
         }
         return;
       } catch (err) {
-        lastError = err;
+        const msg = err instanceof Error ? err.message : String(err);
+        failures.push(`${modelName}: ${msg}`);
       }
     }
-    throw lastError ?? new Error('Gemini chat failed: no compatible model available.');
+    throw new Error(_formatGeminiFailureSummary(failures));
   }
 
   private async _generateWithFallback(
     prompt: string,
     models: readonly string[],
   ): Promise<string> {
-    let lastError: unknown;
+    const failures: string[] = [];
     for (const modelName of models) {
       try {
         const model = this.genAI.getGenerativeModel({ model: modelName });
         const result = await model.generateContent(prompt);
         return result.response.text();
       } catch (err) {
-        lastError = err;
+        const msg = err instanceof Error ? err.message : String(err);
+        failures.push(`${modelName}: ${msg}`);
       }
     }
-    throw lastError ?? new Error('Gemini request failed: no compatible model available.');
+    throw new Error(_formatGeminiFailureSummary(failures));
   }
 
   // -------------------------------------------------------------------------

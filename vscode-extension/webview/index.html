@@ -27,6 +27,15 @@
       padding: 0 12px;
       z-index: 100;
     }
+    .toolbar-group {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding-right: 8px;
+      margin-right: 6px;
+      border-right: 1px solid var(--warm-border);
+    }
+    .toolbar-group.hidden-by-mode { display: none; }
     #toolbar input {
       background: #3c3c3c;
       border: 1px solid #555;
@@ -117,14 +126,14 @@
       border: 1.5px solid #3e3e3e;
       border-radius: 4px;
       min-width: 180px;
-      max-width: 280px;
+      max-width: min(1200px, 92vw);
       font-size: 11px;
       user-select: none;
       transition: border-color 0.15s, box-shadow 0.15s;
     }
     /* Expanded cards need more width than the default 280px cap */
     .class-node.node-card-expanded {
-      max-width: min(560px, 92vw);
+      max-width: min(1200px, 92vw);
     }
     .class-node.node-card-expanded .node-class-name,
     .class-node.node-card-expanded .node-responsibility {
@@ -253,8 +262,8 @@
       font-size: 10px;
       color: #ce9178;
       white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      overflow: visible;
+      text-overflow: clip;
       line-height: 1.5;
     }
 
@@ -455,8 +464,8 @@
       font-size: 10px;
       color: #dcdcaa;
       white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      overflow: visible;
+      text-overflow: clip;
       line-height: 1.5;
       cursor: pointer;
       border-radius: 2px;
@@ -476,8 +485,8 @@
       font-size: 10px;
       color: #dcdcaa;
       white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      overflow: visible;
+      text-overflow: clip;
       cursor: pointer;
       border-radius: 2px;
       padding: 0 2px;
@@ -881,8 +890,20 @@
       font-size: 11px;
       transition: width 0.15s ease;
     }
+    #left-panel-resizer {
+      display: none;
+      position: fixed;
+      top: 40px;
+      bottom: 0;
+      width: 6px;
+      margin-left: -3px;
+      z-index: 35;
+      cursor: col-resize;
+      background: transparent;
+    }
+    #left-panel-resizer:hover { background: rgba(245, 78, 0, 0.18); }
     #left-panel.open:not(.collapsed) {
-      width: 240px;
+      width: var(--bp-left-w, 260px);
       overflow-y: auto;
     }
     #left-panel.collapsed {
@@ -969,6 +990,57 @@
       background: transparent;
     }
     #right-panel-resizer:hover { background: rgba(0, 122, 204, 0.22); }
+    /* Task dock */
+    .task-dock-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--warm-border);
+      background: var(--warm-surface-2);
+      position: sticky;
+      top: 0;
+      z-index: 3;
+    }
+    .task-dock-context {
+      min-width: 0;
+      color: var(--warm-text-muted);
+      font-size: 11px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .task-dock-tabs {
+      display: flex;
+      gap: 6px;
+      padding: 6px 10px;
+      border-bottom: 1px solid var(--warm-border);
+      background: var(--warm-surface);
+      position: sticky;
+      top: 40px;
+      z-index: 2;
+    }
+    .task-tab {
+      border: 1px solid var(--warm-border);
+      border-radius: 9999px;
+      background: var(--warm-surface-3);
+      color: var(--warm-text-muted);
+      font-size: 11px;
+      padding: 2px 10px;
+      cursor: pointer;
+    }
+    .task-tab.active {
+      color: var(--warm-accent);
+      border-color: rgba(245, 78, 0, 0.38);
+      background: rgba(245, 78, 0, 0.1);
+    }
+    .task-pane {
+      display: none;
+      background: var(--warm-surface);
+      color: var(--warm-text);
+    }
+    .task-pane.active { display: block; }
     #right-panel-dock-tab {
       display: none;
       position: fixed;
@@ -1037,6 +1109,7 @@
     body.chat-popout #toolbar,
     body.chat-popout #left-panel-dock-tab,
     body.chat-popout #left-panel,
+    body.chat-popout #left-panel-resizer,
     body.chat-popout #canvas-container,
     body.chat-popout #minimap,
     body.chat-popout #suggestion-bar,
@@ -1068,7 +1141,8 @@
       overflow-x: hidden;
       overflow-y: auto;
     }
-    #explore-summary {
+    #explore-summary,
+    #explore-primary-content {
       flex: 1 1 auto;
       min-height: 120px;
       overflow-x: hidden;
@@ -1361,6 +1435,451 @@
     #empty-state h2 { font-size: 18px; margin-bottom: 8px; color: #ccc; }
     #empty-state p  { font-size: 13px; line-height: 1.6; }
     #empty-state .error { color: #f48771; margin-top: 8px; font-size: 11px; max-width: 400px; word-break: break-all; }
+    /* ===== Cursor-inspired warm redesign (DESIGN.md) ===== */
+    :root {
+      --warm-bg: #f2f1ed;
+      --warm-surface: #ebeae5;
+      --warm-surface-2: #e6e5e0;
+      --warm-surface-3: #e1e0db;
+      --warm-text: #26251e;
+      --warm-text-muted: rgba(38, 37, 30, 0.62);
+      --warm-text-soft: rgba(38, 37, 30, 0.45);
+      --warm-border: rgba(38, 37, 30, 0.12);
+      --warm-border-strong: rgba(38, 37, 30, 0.22);
+      --warm-accent: #f54e00;
+      --warm-danger: #cf2d56;
+      --warm-success: #1f8a65;
+      --warm-link: #c08532;
+      --warm-shadow: rgba(0, 0, 0, 0.14) 0px 28px 70px, rgba(0, 0, 0, 0.1) 0px 14px 32px;
+      --warm-mono: "Berkeley Mono", "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+      --warm-ui: "CursorGothic", "Inter", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+      --warm-serif: "jjannon", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+    }
+
+    body {
+      background: var(--warm-bg);
+      color: var(--warm-text);
+      font-family: var(--warm-ui);
+    }
+
+    #toolbar,
+    #left-panel,
+    #right-panel,
+    .panel-header,
+    .chat-panel-toolbar,
+    #module-scope-bar {
+      background: var(--warm-surface);
+      color: var(--warm-text);
+      border-color: var(--warm-border);
+    }
+
+    #toolbar input,
+    .panel-search input,
+    .trace-ctrl input[type="text"],
+    .trace-ctrl select,
+    #chat-input,
+    #module-scope-bar select,
+    .error-log-area {
+      background: #f7f7f4;
+      color: var(--warm-text);
+      border: 1px solid var(--warm-border);
+      border-radius: 8px;
+      font-family: var(--warm-ui);
+    }
+    #toolbar input:focus,
+    .panel-search input:focus,
+    .trace-ctrl input:focus,
+    .trace-ctrl select:focus,
+    #chat-input:focus,
+    .error-log-area:focus {
+      border-color: var(--warm-border-strong);
+      box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 12px;
+    }
+
+    #toolbar button,
+    .panel-search button,
+    .trace-btn,
+    .chat-add-btn,
+    #chat-send-btn,
+    .chat-panel-toolbar button.icon-btn,
+    .chat-code-copy,
+    .chat-code-jump {
+      background: var(--warm-surface-2);
+      border: 1px solid var(--warm-border);
+      color: var(--warm-text);
+      border-radius: 8px;
+      transition: color .15s ease, background .15s ease, border-color .15s ease, box-shadow .2s ease;
+    }
+    #toolbar button:hover,
+    .panel-search button:hover,
+    .trace-btn:hover,
+    .chat-add-btn:hover,
+    #chat-send-btn:hover,
+    .chat-panel-toolbar button.icon-btn:hover,
+    .chat-code-copy:hover,
+    .chat-code-jump:hover,
+    .mode-btn:hover {
+      color: var(--warm-danger);
+      border-color: var(--warm-border-strong);
+      background: var(--warm-surface-3);
+    }
+    #toolbar button.active,
+    #btn-cluster.active,
+    .mode-btn.mode-active {
+      background: rgba(245, 78, 0, 0.12);
+      border-color: rgba(245, 78, 0, 0.38);
+      color: var(--warm-accent);
+    }
+
+    #mode-bar { border-right-color: var(--warm-border); }
+    .mode-btn {
+      font-family: var(--warm-ui);
+      letter-spacing: 0.08px;
+      color: var(--warm-text-muted);
+      border-radius: 9999px;
+    }
+
+    .class-node,
+    .module-card,
+    .cluster-node,
+    #detail-panel,
+    #ctx-menu,
+    #export-menu,
+    .chat-msg.assistant,
+    .chat-code-block {
+      background: var(--warm-surface-2);
+      color: var(--warm-text);
+      border-color: var(--warm-border);
+      border-radius: 10px;
+      box-shadow: 0 0 0 1px var(--warm-border);
+    }
+    .class-node:hover,
+    .module-card:hover,
+    .cluster-node:hover {
+      border-color: var(--warm-border-strong);
+      box-shadow: var(--warm-shadow);
+    }
+    .class-node.selected,
+    .module-card.selected,
+    .cluster-node.selected {
+      border-color: rgba(245, 78, 0, 0.48);
+      box-shadow: 0 0 0 2px rgba(245, 78, 0, 0.2);
+    }
+
+    .node-header,
+    .chat-code-header {
+      background: #f7f7f4;
+      border-bottom-color: var(--warm-border);
+    }
+    .node-class-name,
+    .detail-title,
+    .module-card-name,
+    .cluster-header {
+      color: var(--warm-text);
+    }
+    .node-namespace,
+    .node-template,
+    .node-responsibility,
+    .module-card-stats,
+    .module-card-seed,
+    .summary-section-title,
+    .panel-placeholder,
+    #info-bar,
+    .chat-spinner,
+    .summary-spinner {
+      color: var(--warm-text-muted);
+    }
+    .node-section-title,
+    .section-count,
+    .node-collapse-btn,
+    .ns-toggle,
+    .ns-badge,
+    .chain-sep {
+      color: var(--warm-text-soft);
+    }
+    .node-attribute,
+    .node-method-name,
+    .node-method,
+    .summary-item,
+    .chat-msg {
+      color: var(--warm-text);
+    }
+    .node-method-name:hover,
+    .node-method:hover,
+    .ns-class-item:hover,
+    .ctx-item:hover,
+    .export-item:hover,
+    .chain-step:hover {
+      background: rgba(245, 78, 0, 0.08);
+      color: var(--warm-accent);
+    }
+
+    #left-panel-dock-tab,
+    #right-panel-dock-tab,
+    .suggestion-chip,
+    .path-step {
+      background: var(--warm-surface-2);
+      border-color: var(--warm-border);
+      color: var(--warm-text);
+      border-radius: 9999px;
+    }
+    .suggestion-chip:hover,
+    .path-step:hover {
+      background: var(--warm-surface-3);
+      border-color: var(--warm-border-strong);
+    }
+
+    .summary-link,
+    .chat-classlink,
+    #module-scope-bar a,
+    .impact-class,
+    .module-overview-guide {
+      color: var(--warm-link);
+      border-bottom-color: rgba(192, 133, 50, 0.35);
+    }
+    .summary-link:hover,
+    .chat-classlink:hover,
+    #module-scope-bar a:hover,
+    .impact-class:hover,
+    .module-overview-guide:hover {
+      color: var(--warm-accent);
+    }
+
+    .chat-msg.user {
+      background: rgba(245, 78, 0, 0.1);
+      color: var(--warm-text);
+      border: 1px solid rgba(245, 78, 0, 0.22);
+    }
+    .chat-inline-code,
+    .chat-code-pre {
+      font-family: var(--warm-mono);
+      background: #f7f7f4;
+      color: #3a3326;
+      border-color: var(--warm-border);
+    }
+
+    .trace-hop-row input[type="range"] { accent-color: var(--warm-accent); }
+    .trace-hop-val,
+    .chain-cls,
+    .chain-cls.self-cls,
+    .chain-mbr,
+    .cluster-count {
+      color: var(--warm-accent);
+    }
+    .trace-focal-hint {
+      background: #f7f7f4;
+      border-left-color: var(--warm-link);
+      color: var(--warm-text-muted);
+    }
+
+    #empty-state,
+    #empty-state h2,
+    #empty-state p {
+      color: var(--warm-text);
+      font-family: var(--warm-serif);
+    }
+    #empty-state .error { color: var(--warm-danger); }
+
+    /* ===== Dark mode unification sweep (DESIGN-inspired warm dark) ===== */
+    :root {
+      --warm-bg: #1f1d19;
+      --warm-surface: #26231f;
+      --warm-surface-2: #2e2a25;
+      --warm-surface-3: #38332d;
+      --warm-text: #ece7dd;
+      --warm-text-muted: rgba(236, 231, 221, 0.72);
+      --warm-text-soft: rgba(236, 231, 221, 0.5);
+      --warm-border: rgba(236, 231, 221, 0.12);
+      --warm-border-strong: rgba(236, 231, 221, 0.24);
+      --warm-accent: #f54e00;
+      --warm-danger: #cf2d56;
+      --warm-link: #c08532;
+    }
+
+    #locale-select {
+      background: var(--warm-surface-2) !important;
+      color: var(--warm-text) !important;
+      border-color: var(--warm-border) !important;
+    }
+    /* input legibility: force dark surface + bright text */
+    #filter-input,
+    #explore-keyword,
+    #trace-cls-inp,
+    #trace-flow-inp,
+    #trace-mth-sel,
+    #module-scope-select,
+    #chat-input,
+    .panel-search input,
+    .trace-ctrl input[type="text"],
+    .trace-ctrl select,
+    .error-log-area {
+      background: #2a2621 !important;
+      color: #f3eee4 !important;
+      border-color: rgba(236, 231, 221, 0.26) !important;
+      caret-color: #f3eee4 !important;
+    }
+    #filter-input::placeholder,
+    #explore-keyword::placeholder,
+    #trace-cls-inp::placeholder,
+    #trace-flow-inp::placeholder,
+    #chat-input::placeholder,
+    .error-log-area::placeholder {
+      color: rgba(236, 231, 221, 0.56) !important;
+    }
+    #btn-show-hidden {
+      color: #f5b047 !important;
+      border-color: #f5b047 !important;
+      background: rgba(245, 176, 71, 0.08) !important;
+    }
+
+    #trace-panel,
+    #tooltip,
+    #minimap,
+    #detail-panel,
+    #ctx-menu,
+    #export-menu,
+    #module-overview,
+    #right-panel,
+    #right-panel-content,
+    .task-dock-header,
+    .task-dock-tabs,
+    .task-pane,
+    #explore-primary-content,
+    .panel-header,
+    .panel-search,
+    .trace-ctrl,
+    .chat-input-row,
+    #chat-output,
+    #chat-popout-ctx-strip,
+    .summary-intent,
+    .summary-section,
+    .impact-group,
+    .trace-legend {
+      background: var(--warm-surface) !important;
+      color: var(--warm-text) !important;
+      border-color: var(--warm-border) !important;
+    }
+
+    .task-dock-header {
+      background: var(--warm-surface-2) !important;
+    }
+    .task-dock-tabs {
+      background: var(--warm-surface) !important;
+    }
+    .task-tab {
+      background: var(--warm-surface-3) !important;
+      color: var(--warm-text-muted) !important;
+    }
+    .task-tab.active {
+      color: #ffb08a !important;
+      background: rgba(245, 78, 0, 0.16) !important;
+    }
+    .task-dock-context {
+      color: var(--warm-text) !important;
+    }
+    .summary-item,
+    .summary-intent {
+      color: var(--warm-text) !important;
+    }
+
+    .chat-inline-code,
+    .chat-code-pre {
+      background: #2a2621 !important;
+      color: #f3eee4 !important;
+      border-color: var(--warm-border) !important;
+    }
+    .trace-focal-hint {
+      background: #2a2621 !important;
+      color: var(--warm-text-muted) !important;
+    }
+
+    .trace-step:hover,
+    .call-tree-node:hover,
+    .ns-group-header:hover,
+    .ns-class-item:hover,
+    .chain-step:hover,
+    .key-flow-item:hover,
+    .ctx-item:hover,
+    .export-item:hover {
+      background: rgba(245, 78, 0, 0.12) !important;
+      color: var(--warm-text) !important;
+    }
+
+    .trace-step.active-step,
+    .ns-class-item.active,
+    .mode-btn.mode-active {
+      background: rgba(245, 78, 0, 0.14) !important;
+      border-color: rgba(245, 78, 0, 0.42) !important;
+      color: #ffb08a !important;
+    }
+
+    .call-tree-sep,
+    .step-sep,
+    .chain-sep,
+    .path-arrow,
+    .detail-row,
+    .summary-section-title,
+    .panel-section-title,
+    .module-card-stats,
+    .module-card-seed,
+    .module-card-deps,
+    .trace-empty-msg,
+    .summary-spinner,
+    .chat-spinner,
+    .trace-ctrl label {
+      color: var(--warm-text-muted) !important;
+    }
+
+    .call-tree-class,
+    .step-class,
+    .chain-cls,
+    .summary-link,
+    .impact-class,
+    .chat-classlink {
+      color: #e0b06f !important;
+    }
+    .call-tree-method,
+    .step-member,
+    .chain-mbr,
+    .node-method,
+    .node-method-name {
+      color: #f2d59a !important;
+    }
+    .node-header {
+      background: #221f1a !important;
+      border-bottom-color: rgba(236, 231, 221, 0.2) !important;
+    }
+    .node-class-name {
+      color: #ffcf8a !important;
+      text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
+    }
+    .node-namespace,
+    .node-template,
+    .node-responsibility {
+      color: rgba(236, 231, 221, 0.78) !important;
+    }
+    .node-attribute { color: #e9b189 !important; }
+
+    .edge-association,
+    .edge-dependency {
+      stroke: rgba(236, 231, 221, 0.45) !important;
+    }
+
+    /* inline-style cleanup */
+    [style*="color:#555"],
+    [style*="color: #555"] { color: var(--warm-text-soft) !important; }
+    [style*="color:#666"],
+    [style*="color: #666"],
+    [style*="color:#888"],
+    [style*="color: #888"],
+    [style*="color:#aaa"],
+    [style*="color: #aaa"] { color: var(--warm-text-muted) !important; }
+    [style*="background:#1e1e1e"],
+    [style*="background: #1e1e1e"],
+    [style*="background:#252526"],
+    [style*="background: #252526"],
+    [style*="background:#2d2d2d"],
+    [style*="background: #2d2d2d"] { background: var(--warm-surface) !important; }
   </style>
 </head>
 <body>
@@ -1372,27 +1891,37 @@
     <button type="button" class="mode-btn" data-mode="trace" data-i18n="modeTrace" data-i18n-title="modeTraceTitle">Trace</button>
     <button type="button" class="mode-btn" data-mode="chat" data-i18n="modeChat" data-i18n-title="modeChatTitle">Chat</button>
   </div>
-  <button type="button" id="btn-fit" data-i18n="toolbarFit" data-i18n-title="toolbarFitTitle">Fit</button>
-  <button type="button" id="btn-reset" data-i18n="toolbarReset" data-i18n-title="toolbarResetTitle">100%</button>
-  <div class="toolbar-filter-wrap">
-    <input id="filter-input" type="text" placeholder="Search classes…" title="Regex filter by class name" data-i18n-placeholder="toolbarFilterPh" data-i18n-title="toolbarFilterTitle" autocomplete="off" />
-    <button type="button" id="btn-filter-clear" style="display:none" data-i18n-title="toolbarFilterClearTitle" aria-label="Clear">✕</button>
+  <div class="toolbar-group" data-group="view" data-modes="explore,trace">
+    <button type="button" id="btn-fit" data-i18n="toolbarFit" data-i18n-title="toolbarFitTitle">Fit</button>
+    <button type="button" id="btn-reset" data-i18n="toolbarReset" data-i18n-title="toolbarResetTitle">100%</button>
+    <button type="button" id="btn-relayout" data-i18n="toolbarRelayout" data-i18n-title="toolbarRelayoutTitle">Relayout</button>
+    <button type="button" id="btn-layout-tb" class="active" data-i18n="toolbarLayoutTB" data-i18n-title="toolbarLayoutTBTitle">TB</button>
+    <button type="button" id="btn-layout-lr" data-i18n="toolbarLayoutLR" data-i18n-title="toolbarLayoutLRTitle">LR</button>
   </div>
-  <button type="button" id="btn-relayout" data-i18n="toolbarRelayout" data-i18n-title="toolbarRelayoutTitle">Relayout</button>
-  <button type="button" id="btn-expand-all" data-i18n="toolbarExpandAll" data-i18n-title="toolbarExpandAllTitle">Expand All</button>
-  <button type="button" id="btn-collapse-all" data-i18n="toolbarCollapseAll" data-i18n-title="toolbarCollapseAllTitle">Collapse All</button>
-  <button type="button" id="btn-layout-tb" class="active" data-i18n="toolbarLayoutTB" data-i18n-title="toolbarLayoutTBTitle">TB</button>
-  <button type="button" id="btn-layout-lr" data-i18n="toolbarLayoutLR" data-i18n-title="toolbarLayoutLRTitle">LR</button>
-  <button type="button" id="btn-undo" data-i18n="toolbarUndo" data-i18n-title="toolbarUndoTitle" disabled>↩ Undo</button>
-  <button type="button" id="btn-select" data-i18n="toolbarSelect" data-i18n-title="toolbarSelectTitle">⬚ Select</button>
-  <button type="button" id="btn-show-hidden" data-i18n-title="toolbarShowHiddenTitle" style="display:none;color:#f5a623;border-color:#f5a623;">Show Hidden (0)</button>
-  <button type="button" id="btn-cluster" data-i18n="toolbarCluster" data-i18n-title="toolbarClusterTitle">⬡ Cluster</button>
-  <div class="export-wrap">
-    <button type="button" id="btn-export" data-i18n="toolbarExport" data-i18n-title="toolbarExportTitle">Export ▾</button>
-    <div id="export-menu">
-      <div class="export-item" id="export-mermaid" data-i18n="toolbarExportMermaid">Copy Mermaid Syntax</div>
-      <div class="export-item" id="export-svg" data-i18n="toolbarExportSvg">Download SVG</div>
+  <div class="toolbar-group" data-group="flow" data-modes="explore,trace">
+    <div class="toolbar-filter-wrap">
+      <input id="filter-input" type="text" placeholder="Search classes…" title="Regex filter by class name" data-i18n-placeholder="toolbarFilterPh" data-i18n-title="toolbarFilterTitle" autocomplete="off" />
+      <button type="button" id="btn-filter-clear" style="display:none" data-i18n-title="toolbarFilterClearTitle" aria-label="Clear">✕</button>
+      <button type="button" id="btn-pinned-clear" style="display:none" aria-label="Clear pinned">Clear Pinned</button>
     </div>
+    <button type="button" id="btn-show-hidden" data-i18n-title="toolbarShowHiddenTitle" style="display:none;color:#f5a623;border-color:#f5a623;">Show Hidden (0)</button>
+  </div>
+  <div class="toolbar-group" data-group="node" data-modes="explore,trace">
+    <button type="button" id="btn-expand-all" data-i18n="toolbarExpandAll" data-i18n-title="toolbarExpandAllTitle">Expand All</button>
+    <button type="button" id="btn-collapse-all" data-i18n="toolbarCollapseAll" data-i18n-title="toolbarCollapseAllTitle">Collapse All</button>
+    <button type="button" id="btn-toggle-private" data-i18n-title="toolbarTogglePrivateTitle" aria-label="Toggle Private">Private: On</button>
+  </div>
+  <div class="toolbar-group" data-group="action" data-modes="explore,trace,chat">
+    <button type="button" id="btn-select" data-i18n="toolbarSelect" data-i18n-title="toolbarSelectTitle">⬚ Select</button>
+    <button type="button" id="btn-cluster" data-i18n="toolbarCluster" data-i18n-title="toolbarClusterTitle">⬡ Cluster</button>
+    <div class="export-wrap">
+      <button type="button" id="btn-export" data-i18n="toolbarExport" data-i18n-title="toolbarExportTitle">Export ▾</button>
+      <div id="export-menu">
+        <div class="export-item" id="export-mermaid" data-i18n="toolbarExportMermaid">Copy Mermaid Syntax</div>
+        <div class="export-item" id="export-svg" data-i18n="toolbarExportSvg">Download SVG</div>
+      </div>
+    </div>
+    <button type="button" id="btn-undo" data-i18n="toolbarUndo" data-i18n-title="toolbarUndoTitle" disabled>↩ Undo</button>
   </div>
   <select id="locale-select" data-i18n-title="localeTitle" aria-label="Language" style="font-size:11px;background:#3c3c3c;color:#d4d4d4;border:1px solid #555;border-radius:3px;padding:2px 6px;cursor:pointer;">
     <option value="zh-TW">繁體中文</option>
@@ -1406,6 +1935,7 @@
   <button type="button" id="btn-left-panel-collapse" data-i18n-title="panelLeftCollapseTitle" aria-label="Collapse">⟩</button>
   <div id="left-panel-content"></div>
 </div>
+<div id="left-panel-resizer" aria-hidden="true" data-i18n-title="panelLeftResizeTitle"></div>
 <button type="button" id="left-panel-dock-tab" data-i18n-title="panelLeftExpandTitle" aria-label="Expand">📂</button>
 
 <!-- Right Panel -->
@@ -1553,6 +2083,8 @@ let totalCount    = 0;
 let nodes         = {};   // className → {el, x, y, w, h, entry}
 let edges         = [];   // [{from, to, type, cardinality, elLine, elHit}]
 let filterRegex   = null;
+/** Class names forced visible while a text/ns filter is active (jump-from-analysis without clearing filter). */
+const filterPinnedClasses = new Set();
 let layoutDir     = 'TB';
 const VIEW_LIMIT  = 150;
 
@@ -1560,10 +2092,14 @@ const VIEW_LIMIT  = 150;
 const LS_RIGHT_W = 'blueprint_right_panel_w';
 const LS_RIGHT_COLLAPSE = 'blueprint_right_panel_collapsed';
 const LS_LEFT_COLLAPSE = 'blueprint_left_panel_collapsed';
-const LEFT_PANEL_WIDTH_PX = 240;
+const LS_LEFT_W = 'blueprint_left_panel_w';
+const LEFT_PANEL_MIN_W = 220;
+const LEFT_PANEL_MAX_W = 360;
+let leftPanelWidthPx = 260;
 let rightPanelWidthPx = 290;
 let rightPanelCollapsed = false;
 let leftPanelCollapsed = false;
+let showPrivateMembers = true;
 try {
   const rw = localStorage.getItem(LS_RIGHT_W);
   if (rw) {
@@ -1572,6 +2108,11 @@ try {
   }
   rightPanelCollapsed = localStorage.getItem(LS_RIGHT_COLLAPSE) === '1';
   leftPanelCollapsed = localStorage.getItem(LS_LEFT_COLLAPSE) === '1';
+  const lw = localStorage.getItem(LS_LEFT_W);
+  if (lw) {
+    const n = parseInt(lw, 10);
+    if (n >= LEFT_PANEL_MIN_W && n <= LEFT_PANEL_MAX_W) leftPanelWidthPx = n;
+  }
 } catch (_) { /* webview storage */ }
 
 // UI-02: persisted node positions (survive re-render)
@@ -1584,9 +2125,14 @@ const collapsedNodes = new Set();
 /** Filter / namespace / trace 改變可見子圖時，同步工具列篩選狀態（清除鈕、資訊列樣式）。 */
 function updateFilterChrome() {
   const clr = document.getElementById('btn-filter-clear');
+  const pinClr = document.getElementById('btn-pinned-clear');
   const ib = document.getElementById('info-bar');
   const active = !!(filterRegex || traceSubgraph !== null);
   if (clr) clr.style.display = active ? 'inline-block' : 'none';
+  if (pinClr) {
+    pinClr.style.display = filterPinnedClasses.size > 0 ? 'inline-block' : 'none';
+    pinClr.textContent = `Clear Pinned (${filterPinnedClasses.size})`;
+  }
   if (ib) ib.classList.toggle('filter-active', active);
 }
 
@@ -1694,6 +2240,20 @@ let traceMode = null; // {className, sig, rowEl} or null
 // ── E4: App Mode ──────────────────────────────────────────────
 let activeMode = 'explore';
 
+function _updateToolbarModeVisibility(mode) {
+  document.querySelectorAll('.toolbar-group[data-modes]').forEach(group => {
+    const modes = String(group.dataset.modes || '').split(',').map(s => s.trim()).filter(Boolean);
+    group.classList.toggle('hidden-by-mode', modes.length > 0 && !modes.includes(mode));
+  });
+}
+
+function _updatePrivateToggleLabel() {
+  const btn = document.getElementById('btn-toggle-private');
+  if (!btn) return;
+  btn.textContent = showPrivateMembers ? 'Private: On' : 'Private: Off';
+  btn.classList.toggle('active', showPrivateMembers);
+}
+
 function switchMode(mode) {
   if (mode === activeMode) return;
   activeMode = mode;
@@ -1725,6 +2285,7 @@ function switchMode(mode) {
   }
 
   _renderSidePanels(mode);
+  _updateToolbarModeVisibility(mode);
   if (!IS_CHAT_POPOUT) vscode.postMessage({ type: 'modeSwitch', mode });
 }
 
@@ -1780,6 +2341,19 @@ function _renderSidePanels(mode) {
   }
   applyChromeI18n();
   applySidePanelsLayout();
+}
+
+function _wireTaskDockTabs(root, defaultPaneId) {
+  const tabs = root.querySelectorAll('.task-tab');
+  const panes = root.querySelectorAll('.task-pane');
+  const activate = (paneId) => {
+    tabs.forEach(t => t.classList.toggle('active', t.dataset.pane === paneId));
+    panes.forEach(p => p.classList.toggle('active', p.id === paneId));
+  };
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => activate(tab.dataset.pane));
+  });
+  activate(defaultPaneId);
 }
 
 // ── Explore: Left Panel (F1 + F4) ─────────────────────────────
@@ -1851,7 +2425,7 @@ function _nsClassClick(className) {
   applyFilter('');
   setTimeout(() => { centerOn(className); selectNode(className); }, 60);
   if (activeMode === 'explore') {
-    const summEl = document.getElementById('explore-summary');
+    const summEl = document.getElementById('explore-primary-content');
     if (summEl) { summEl.className = 'summary-spinner'; summEl.textContent = T('exploreLoading'); }
     vscode.postMessage({ type: 'requestSummary', className });
   }
@@ -1860,25 +2434,47 @@ function _nsClassClick(className) {
 // ── Explore: Right Panel (F3) ─────────────────────────────────
 function _buildExploreRight(container) {
   container.innerHTML = `
-    <div class="chat-panel-toolbar">
-      <span>${_esc(T('aiSummary'))}</span>
+    <div class="task-dock-header">
+      <div class="task-dock-context" id="explore-context-line">${_esc(T('exploreSelectClass'))}</div>
       <div class="chat-toolbar-actions">
+        <button type="button" class="icon-btn" id="btn-explore-jump">↗</button>
         <button type="button" class="icon-btn" id="btn-explore-right-collapse" data-i18n-title="chatSidebarCollapseTitle">⟨</button>
       </div>
     </div>
-    <div id="explore-summary" class="summary-spinner">${_esc(T('exploreSelectClass'))}</div>`;
+    <div class="task-dock-tabs">
+      <button type="button" class="task-tab" data-pane="explore-pane-summary">${_esc(T('aiSummary'))}</button>
+      <button type="button" class="task-tab" data-pane="explore-pane-action">Action</button>
+    </div>
+    <div class="task-pane" id="explore-pane-summary">
+      <div id="explore-primary-content" class="summary-spinner">${_esc(T('exploreSelectClass'))}</div>
+    </div>
+    <div class="task-pane" id="explore-pane-action" style="padding:10px 12px;">
+      <button type="button" class="trace-btn" id="btn-explore-add-chat">Add Selected to Chat Context</button>
+    </div>`;
   const btn = document.getElementById('btn-explore-right-collapse');
   if (btn) btn.addEventListener('click', () => _toggleRightPanelCollapsed());
+  const jumpBtn = document.getElementById('btn-explore-jump');
+  if (jumpBtn) jumpBtn.addEventListener('click', () => { if (selectedClass && nodes[selectedClass]) jumpToSource(nodes[selectedClass].entry); });
+  const addChatBtn = document.getElementById('btn-explore-add-chat');
+  if (addChatBtn) addChatBtn.addEventListener('click', () => {
+    if (selectedClass && !_chatContextClasses.includes(selectedClass)) {
+      _chatContextClasses.push(selectedClass);
+      vscode.postMessage({ type: 'contextUpdate', selectedClasses: _chatContextClasses });
+    }
+  });
+  _wireTaskDockTabs(container, 'explore-pane-summary');
 }
 
 function _showSummary(msg) {
   if (activeMode !== 'explore') return;
-  const el = document.getElementById('explore-summary');
+  const el = document.getElementById('explore-primary-content');
   if (!el) return;
   const intent = _esc(msg.intent || '—');
   const resps  = (msg.responsibilities || []).map(r => `<div class="summary-item">• ${_esc(r)}</div>`).join('');
   const mkLinks = arr => (arr || []).map(c =>
     `<span class="summary-link" onclick="_nsClassClick('${_esc(c)}')">${_esc(c)}</span>`).join(', ');
+  const cx = document.getElementById('explore-context-line');
+  if (cx) cx.textContent = msg.className ? `${msg.className}` : intent;
   el.className = '';
   el.innerHTML = `
     <div class="summary-intent">${intent}</div>
@@ -1972,36 +2568,47 @@ function _populateMethodSelect(className) {
  */
 function updateTraceImpactFocalHint() {
   const el = document.getElementById('trace-impact-focal-hint');
+  const cx = document.getElementById('trace-context-line');
   if (!el) return;
   if (_traceFocalClass) {
     el.classList.remove('empty');
     el.textContent = T('traceImpactFocal', { cn: _traceFocalClass });
+    if (cx) cx.textContent = `${_traceFocalClass}${_traceFocalMethod ? ` :: ${_traceFocalMethod}` : ''}`;
   } else {
     el.classList.add('empty');
     el.textContent = T('traceImpactEmpty');
+    if (cx) cx.textContent = T('traceSetFocalHint');
   }
 }
 
 function _buildTraceRight(container) {
   container.innerHTML = `
-    <div class="chat-panel-toolbar">
-      <span>${_esc(T('traceCallChain'))}</span>
+    <div class="task-dock-header">
+      <div class="task-dock-context" id="trace-context-line">${_esc(T('traceSetFocalHint'))}</div>
       <div class="chat-toolbar-actions">
         <button type="button" class="icon-btn" id="btn-trace-right-collapse" data-i18n-title="chatSidebarCollapseTitle">⟨</button>
       </div>
     </div>
-    <div id="trace-chain-list"><div class="panel-placeholder">${_esc(T('traceSetFocalHint'))}</div></div>
-    <div id="trace-expl" style="display:none"></div>
-    <div class="panel-header" style="margin-top:4px">${_esc(T('traceImpactTitle'))}</div>
-    <div id="trace-impact-focal-hint" class="trace-focal-hint"></div>
-    <button type="button" class="trace-btn" id="trace-impact-btn" style="margin-bottom:4px">${_esc(T('traceImpactBtn'))}</button>
-    <div id="trace-impact-res"></div>`;
+    <div class="task-dock-tabs">
+      <button type="button" class="task-tab" data-pane="trace-pane-chain">${_esc(T('traceCallChain'))}</button>
+      <button type="button" class="task-tab" data-pane="trace-pane-impact">${_esc(T('traceImpactTitle'))}</button>
+    </div>
+    <div class="task-pane" id="trace-pane-chain">
+      <div id="trace-chain-list"><div class="panel-placeholder">${_esc(T('traceSetFocalHint'))}</div></div>
+      <div id="trace-expl" style="display:none"></div>
+    </div>
+    <div class="task-pane" id="trace-pane-impact">
+      <div id="trace-impact-focal-hint" class="trace-focal-hint"></div>
+      <button type="button" class="trace-btn" id="trace-impact-btn" style="margin-bottom:4px">${_esc(T('traceImpactBtn'))}</button>
+      <div id="trace-impact-res"></div>
+    </div>`;
   document.getElementById('trace-impact-btn').addEventListener('click', () => {
     if (_traceFocalClass) vscode.postMessage({ type: 'requestImpact', className: _traceFocalClass });
   });
   const trc = document.getElementById('btn-trace-right-collapse');
   if (trc) trc.addEventListener('click', () => _toggleRightPanelCollapsed());
   updateTraceImpactFocalHint();
+  _wireTaskDockTabs(container, 'trace-pane-chain');
 }
 
 function _showTraceResult(msg) {
@@ -2168,13 +2775,17 @@ function _buildChatRight(container) {
   container.innerHTML = `
     <div id="chat-panel-right">
       <div id="chat-popout-ctx-strip">${_esc(T('chatPopoutNoCtx'))}</div>
-      <div class="chat-panel-toolbar">
-        <span>${_esc(T('chatPanelTitle'))}</span>
+      <div class="task-dock-header">
+        <div class="task-dock-context">${_esc(T('chatPanelTitle'))}</div>
         <div class="chat-toolbar-actions">
           <button type="button" class="icon-btn" id="btn-chat-sidebar-collapse" data-i18n-title="chatSidebarCollapseTitle">⟨</button>
           <button type="button" class="icon-btn" id="btn-chat-popout" data-i18n-title="chatPopoutTitle">⧉</button>
         </div>
       </div>
+      <div class="task-dock-tabs">
+        <button type="button" class="task-tab" data-pane="chat-pane-main">${_esc(T('chatPanelTitle'))}</button>
+      </div>
+      <div class="task-pane" id="chat-pane-main">
       <div id="chat-output">
         <div class="chat-empty">${_esc(T('chatEmpty'))}</div>
       </div>
@@ -2182,6 +2793,7 @@ function _buildChatRight(container) {
       <div class="chat-input-row">
         <textarea id="chat-input" placeholder="${_esc(T('chatInputPh'))}" rows="2"></textarea>
         <button type="button" id="chat-send-btn">${_esc(T('chatSend'))}</button>
+      </div>
       </div>
     </div>
   `;
@@ -2205,6 +2817,7 @@ function _buildChatRight(container) {
     if (btnCol) btnCol.style.display = 'none';
     if (btnPop) btnPop.style.display = 'none';
   }
+  _wireTaskDockTabs(container, 'chat-pane-main');
 }
 
 function _updateChatPopoutCtxStrip() {
@@ -2378,24 +2991,32 @@ function _adjustCanvasMargins() {
   const lOpen = !!(lp && lp.classList.contains('open') && !lp.classList.contains('collapsed'));
   const rp = document.getElementById('right-panel');
   const rOpen = !!(rp && rp.classList.contains('open') && !rp.classList.contains('collapsed'));
-  cc.style.left  = lOpen ? `${LEFT_PANEL_WIDTH_PX}px` : '0';
+  cc.style.left  = lOpen ? `${leftPanelWidthPx}px` : '0';
   cc.style.right = rOpen ? `${rightPanelWidthPx}px` : '0';
 }
 
 function applyLeftPanelLayout() {
   if (IS_CHAT_POPOUT) return;
   const lp = document.getElementById('left-panel');
+  const ls = document.getElementById('left-panel-resizer');
   const tab = document.getElementById('left-panel-dock-tab');
   const btn = document.getElementById('btn-left-panel-collapse');
   if (!lp) return;
+  document.documentElement.style.setProperty('--bp-left-w', `${leftPanelWidthPx}px`);
+  lp.style.width = leftPanelCollapsed ? '' : `${leftPanelWidthPx}px`;
   if (leftPanelCollapsed) {
     lp.classList.remove('open');
     lp.classList.add('collapsed');
+    if (ls) ls.style.display = 'none';
     if (tab) tab.style.display = 'flex';
     if (btn) btn.style.display = 'none';
   } else {
     lp.classList.add('open');
     lp.classList.remove('collapsed');
+    if (ls) {
+      ls.style.display = 'block';
+      ls.style.left = `${leftPanelWidthPx}px`;
+    }
     if (tab) tab.style.display = 'none';
     if (btn) btn.style.display = '';
   }
@@ -2438,9 +3059,41 @@ function applyRightPanelLayout() {
     if (tab) tab.style.display = 'none';
   }
   _adjustCanvasMargins();
+  if (traceMode) _setFloatingTracePanelVisible(true);
 }
 
 let _rightResizeActive = false;
+let _leftResizeActive = false;
+
+function _startLeftPanelResize(ev) {
+  if (IS_CHAT_POPOUT || leftPanelCollapsed) return;
+  ev.preventDefault();
+  _leftResizeActive = true;
+  const startX = ev.clientX;
+  const startW = leftPanelWidthPx;
+  function onMove(e) {
+    if (!_leftResizeActive) return;
+    let nw = startW + (e.clientX - startX);
+    nw = Math.max(LEFT_PANEL_MIN_W, Math.min(LEFT_PANEL_MAX_W, nw));
+    leftPanelWidthPx = nw;
+    const lp = document.getElementById('left-panel');
+    if (lp) lp.style.width = `${nw}px`;
+    const ls = document.getElementById('left-panel-resizer');
+    if (ls) ls.style.left = `${nw}px`;
+    _adjustCanvasMargins();
+  }
+  function onUp() {
+    if (!_leftResizeActive) return;
+    _leftResizeActive = false;
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    try { localStorage.setItem(LS_LEFT_W, String(leftPanelWidthPx)); } catch (_) {}
+    renderMinimap();
+  }
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
 function _startRightPanelResize(ev) {
   if (IS_CHAT_POPOUT || rightPanelCollapsed) return;
   ev.preventDefault();
@@ -2523,6 +3176,14 @@ document.getElementById('locale-select').value = uiLocale;
 (function _wireSidePanelsChrome() {
   const lbtn = document.getElementById('btn-left-panel-collapse');
   if (lbtn) lbtn.addEventListener('click', () => _toggleLeftPanelCollapsed());
+  const ls = document.getElementById('left-panel-resizer');
+  if (ls) {
+    ls.addEventListener('mousedown', _startLeftPanelResize);
+    ls.addEventListener('dblclick', (e) => {
+      e.preventDefault();
+      _toggleLeftPanelCollapsed();
+    });
+  }
   const ltab = document.getElementById('left-panel-dock-tab');
   if (ltab) {
     ltab.addEventListener('click', () => {
@@ -2550,6 +3211,17 @@ document.getElementById('locale-select').value = uiLocale;
     });
   }
 })();
+
+const btnPrivate = document.getElementById('btn-toggle-private');
+if (btnPrivate) {
+  btnPrivate.addEventListener('click', () => {
+    showPrivateMembers = !showPrivateMembers;
+    _updatePrivateToggleLabel();
+    renderAll();
+  });
+}
+_updatePrivateToggleLabel();
+_updateToolbarModeVisibility(activeMode);
 
 // Open panels for default mode on load
 _renderSidePanels(activeMode);
@@ -2875,11 +3547,12 @@ function returnToModuleOverview() {
 
 function showModuleSummary(moduleName, summary) {
   if (activeMode !== 'explore') return;
-  const rc = ensureRightPanelContent();
-  if (!rc) return;
-  if (!document.getElementById('right-panel')) return;
-  rc.innerHTML = `<div class="panel-header">${T('moduleHeader', { name: _esc(moduleName) })}</div>` +
-    `<div style="padding:10px 12px;">` +
+  const el = document.getElementById('explore-primary-content');
+  if (!el) return;
+  const cx = document.getElementById('explore-context-line');
+  if (cx) cx.textContent = T('moduleHeader', { name: _esc(moduleName) });
+  el.className = '';
+  el.innerHTML = `<div style="padding:10px 12px;">` +
     `<div style="color:#4ec9b0;font-weight:600;margin-bottom:6px;">${summary.intent || ''}</div>` +
     (summary.keyClasses?.length ? `<div style="margin-bottom:8px;"><span style="color:#888;font-size:10px;">${_esc(T('moduleKeyClasses'))}</span><br>` +
       summary.keyClasses.map(c => `<span style="color:#9cdcfe;cursor:pointer;" class="mod-key-class" data-class="${c}">${c}</span>`).join(', ') + '</div>' : '') +
@@ -2891,9 +3564,9 @@ function showModuleSummary(moduleName, summary) {
     '</div>';
 
   // Wire key class clicks → drill down
-  rc.querySelectorAll('.mod-key-class').forEach(el => {
-    el.addEventListener('click', () => {
-      const cn = el.dataset.class;
+  el.querySelectorAll('.mod-key-class').forEach(node => {
+    node.addEventListener('click', () => {
+      const cn = node.dataset.class;
       // Find which module this class belongs to
       if (moduleData) {
         const mod = moduleData.modules.find(m => m.classNames.includes(cn));
@@ -2914,6 +3587,38 @@ function showModuleSummary(moduleName, summary) {
 // ============================================================
 function _showFlowResult(query, flows) {
   if (activeMode === 'chat') return;
+  if (activeMode === 'explore') {
+    const el = document.getElementById('explore-primary-content');
+    if (!el) return;
+    const cx = document.getElementById('explore-context-line');
+    if (cx) cx.textContent = T('moduleFlowQuery');
+    if (!flows.length) {
+      el.className = '';
+      el.innerHTML = `<div style="padding:12px;color:#888;">${T('moduleNoFlows', { query: _esc(query) })}</div>`;
+      applyChromeI18n();
+      applySidePanelsLayout();
+      return;
+    }
+    let html = `<div style="padding:10px 12px;">`;
+    html += `<div class="summary-section-title" style="margin-bottom:8px;">${T('moduleFlowsTitle', { query: _esc(query) })}</div>`;
+    flows.forEach((flow, i) => {
+      html += `<div style="margin-bottom:12px;">`;
+      html += `<div style="color:#4ec9b0;font-weight:600;font-size:11px;">${i + 1}. ${flow.name}</div>`;
+      html += `<div style="color:#666;font-size:10px;margin-bottom:4px;">${flow.crossedModules.join(' → ')}</div>`;
+      flow.steps.forEach((step, j) => {
+        const color = step.action === 'write' ? '#f78166' : step.action === 'read' ? '#7ee787' : '#9cdcfe';
+        html += `<span style="color:${color};font-size:10px;">${step.className}::${step.method}</span>`;
+        if (j < flow.steps.length - 1) html += `<span style="color:#555;font-size:10px;"> → </span>`;
+      });
+      html += `</div>`;
+    });
+    html += '</div>';
+    el.className = '';
+    el.innerHTML = html;
+    applyChromeI18n();
+    applySidePanelsLayout();
+    return;
+  }
   const rc = ensureRightPanelContent();
   if (!rc) return;
   if (!document.getElementById('right-panel')) return;
@@ -3121,7 +3826,7 @@ function renderCallerTree(tree, container, initialExpandDepth) {
     clsSpan.addEventListener('click', (e) => {
       e.stopPropagation();
       if (node.className !== '_self_' && node.className !== '_global_' && node.className !== '_meta_') {
-        selectNode(node.className.split('::').pop());
+        _smartJumpToClass(node.className);
       }
     });
     div.appendChild(clsSpan);
@@ -3275,8 +3980,7 @@ function _showFieldAccessorsResult(msg) {
 
     // Click row to navigate to the accessor's class
     row.addEventListener('click', () => {
-      const cn = ref.accessorClass.split('::').pop();
-      if (nodes[cn]) centerOn(cn);
+      _smartJumpToClass(ref.accessorClass);
     });
 
     return row;
@@ -3296,12 +4000,110 @@ function _showFieldAccessorsResult(msg) {
   section.appendChild(list);
 
   tracePanelList.appendChild(section);
-  tracePanel.classList.add('visible');
+  _setFloatingTracePanelVisible(true);
 }
 
 // ============================================================
 //  Type Usage Result Handler (M28-10)
 // ============================================================
+function _resolveCanvasClassKey(className) {
+  const raw = String(className || '').trim();
+  if (!raw) return null;
+  const noTemplate = raw.replace(/<.*>/g, '').trim();
+  const short = noTemplate.split('::').pop();
+  return (
+    (nodes[raw] && raw) ||
+    (nodes[noTemplate] && noTemplate) ||
+    (nodes[short] && short) ||
+    null
+  );
+}
+
+function _selectAndCenterStable(classKey) {
+  if (!classKey || !nodes[classKey]) return false;
+  // Avoid selectNode() second-click toggle behavior for same class.
+  if (selectedClass === classKey) selectedClass = null;
+  selectNode(classKey);
+  centerOn(classKey);
+  return true;
+}
+
+function _smartJumpToClass(className, attempt = 0) {
+  const raw = String(className || '').trim();
+  const noTemplate = raw.replace(/<.*>/g, '').trim();
+  const short = noTemplate.split('::').pop();
+  if (!short) return false;
+
+  // If we are not in normal canvas mode, switch back first.
+  if (moduleViewActive) {
+    if (drilledModule) {
+      const mod = moduleData?.modules?.find(m => m.name === drilledModule);
+      if (mod) {
+        drillDownToModule(mod.name);
+        setTimeout(() => _smartJumpToClass(raw, attempt + 1), 240);
+        return true;
+      }
+    } else {
+      const firstMod = moduleData?.modules?.find(m =>
+        m.classNames.includes(raw) || m.classNames.includes(short) ||
+        m.classNames.some(cn => cn.split('::').pop() === short)
+      );
+      if (firstMod) {
+        drillDownToModule(firstMod.name);
+        setTimeout(() => _smartJumpToClass(raw, attempt + 1), 240);
+        return true;
+      }
+    }
+  }
+  if (clusterViewActive) {
+    clusterViewActive = false;
+    const b = document.getElementById('btn-cluster');
+    if (b) b.classList.remove('active');
+    renderAll();
+    setTimeout(() => _smartJumpToClass(raw, attempt + 1), 160);
+    return true;
+  }
+
+  const directTarget = _resolveCanvasClassKey(raw);
+  if (_selectAndCenterStable(directTarget)) return true;
+
+  const entry = allEntries.find(e =>
+    e.className === raw ||
+    e.className === noTemplate ||
+    e.className === short ||
+    e.className.split('::').pop() === short
+  );
+  if (!entry) {
+    const ib = document.getElementById('info-bar');
+    if (ib) {
+      const prev = ib.textContent;
+      ib.textContent = (T('jumpUnknownClass') || 'Unknown class') + ': ' + short;
+      setTimeout(() => { ib.textContent = prev; }, 2500);
+    }
+    return false;
+  }
+
+  // Keep user's filter: pin target so it stays visible with the current subgraph.
+  filterPinnedClasses.add(entry.className);
+  updateFilterChrome();
+  renderAll();
+
+  const tryAfterRender = (n) => {
+    if (n > 20) return;
+    setTimeout(() => {
+      const target = _resolveCanvasClassKey(entry.className);
+      if (_selectAndCenterStable(target)) return;
+      tryAfterRender(n + 1);
+    }, n === 0 ? 0 : 80);
+  };
+  tryAfterRender(0);
+  return true;
+}
+
+function _focusClassFromUsage(className) {
+  _smartJumpToClass(className);
+}
+
 function _showTypeUsageResult(msg) {
   const { typeName, result } = msg;
 
@@ -3326,7 +4128,7 @@ function _showTypeUsageResult(msg) {
     empty.textContent = T('noTypeUsage') || 'No usages found for this type.';
     section.appendChild(empty);
     tracePanelList.appendChild(section);
-    tracePanel.classList.add('visible');
+    _setFloatingTracePanelVisible(true);
     return;
   }
 
@@ -3370,8 +4172,7 @@ function _showTypeUsageResult(msg) {
       }
 
       row.addEventListener('click', () => {
-        const cn = ref.className.split('::').pop();
-        if (nodes[cn]) centerOn(cn);
+        _focusClassFromUsage(ref.className);
       });
 
       section.appendChild(row);
@@ -3397,7 +4198,7 @@ function _showTypeUsageResult(msg) {
   );
 
   tracePanelList.appendChild(section);
-  tracePanel.classList.add('visible');
+  _setFloatingTracePanelVisible(true);
 }
 
 // ============================================================
@@ -3454,7 +4255,7 @@ function renderCallTree(tree, container, initialExpandDepth) {
     clsSpan.addEventListener('click', (e) => {
       e.stopPropagation();
       if (node.className !== '_self_' && node.className !== '_global_' && node.className !== '_meta_') {
-        selectNode(node.className.split('::').pop());
+        _smartJumpToClass(node.className);
       }
     });
     div.appendChild(clsSpan);
@@ -4106,6 +4907,7 @@ function _renderAllImpl() {
     requestAnimationFrame(() => {
       Object.values(nodes).forEach(n => {
         if (n.el.style.display === 'none') return;
+        _autoFitNodeWidth(n);
         n.w = n.el.offsetWidth || n.w;
         n.h = n.el.offsetHeight || n.h;
       });
@@ -4177,7 +4979,7 @@ function _createNodeElWithOpts(entry, displayOptions) {
 }
 
 function createNodeEl(entry) {
-  return NodeCard.create(entry, {});
+  return NodeCard.create(entry, { showPrivate: showPrivateMembers });
 }
 
 function _legacyCreateNodeEl(entry, opts = {}) {
@@ -4292,7 +5094,7 @@ function _legacyCreateNodeEl(entry, opts = {}) {
       e.stopPropagation();
       secBody.classList.toggle('sec-collapsed');
       tog.textContent = secBody.classList.contains('sec-collapsed') ? '▶' : '▼';
-      redrawEdges();
+      _relayoutAfterNodeSizeChange();
     });
     wrapper.appendChild(hdr); wrapper.appendChild(secBody);
     return {wrapper, secBody};
@@ -4383,7 +5185,7 @@ function _legacyCreateNodeEl(entry, opts = {}) {
   const pubAttrs  = allAttrs.filter(a => a.startsWith('+'));
   const privAttrs = allAttrs.filter(a => !a.startsWith('+'));
   if (opts.showAttributes && pubAttrs.length > 0) {
-    const {wrapper, secBody} = makeSection(T('nodePublicFields'), pubAttrs.length, true);
+    const {wrapper, secBody} = makeSection(T('nodePublicFields'), pubAttrs.length, false);
     const aDiv = document.createElement('div'); aDiv.className = 'node-attributes';
     pubAttrs.forEach(l => aDiv.appendChild(buildAttrRow(l)));
     secBody.appendChild(aDiv); body.appendChild(wrapper);
@@ -4393,7 +5195,7 @@ function _legacyCreateNodeEl(entry, opts = {}) {
   const methods = entry.interfaces || [];
   const methodMeta = entry.interfaceMeta || [];
   if (opts.showMethods && methods.length > 0) {
-    const {wrapper, secBody} = makeSection(T('nodePublicMethods'), methods.length, true);
+    const {wrapper, secBody} = makeSection(T('nodePublicMethods'), methods.length, false);
     const mDiv = document.createElement('div'); mDiv.className = 'node-methods';
     methods.forEach((sig, idx) => mDiv.appendChild(buildMethodRow(sig, methodMeta[idx], false)));
     secBody.appendChild(mDiv); body.appendChild(wrapper);
@@ -4401,7 +5203,7 @@ function _legacyCreateNodeEl(entry, opts = {}) {
 
   // --- Section 3: Protected / Private Fields (gated by opts.showAttributes) ---
   if (opts.showAttributes && privAttrs.length > 0) {
-    const {wrapper, secBody} = makeSection(T('nodePrivateFields'), privAttrs.length, true);
+    const {wrapper, secBody} = makeSection(T('nodePrivateFields'), privAttrs.length, false);
     const aDiv = document.createElement('div'); aDiv.className = 'node-attributes';
     privAttrs.forEach(l => aDiv.appendChild(buildAttrRow(l)));
     secBody.appendChild(aDiv); body.appendChild(wrapper);
@@ -4410,7 +5212,7 @@ function _legacyCreateNodeEl(entry, opts = {}) {
   // --- Section 4: Private Methods (gated by opts.showPrivate) ---
   const privateMethods = entry.privateMethods || [];
   if (opts.showPrivate && privateMethods.length > 0) {
-    const {wrapper, secBody} = makeSection(T('nodePrivateMethods'), privateMethods.length, true);
+    const {wrapper, secBody} = makeSection(T('nodePrivateMethods'), privateMethods.length, false);
     const mDiv = document.createElement('div'); mDiv.className = 'node-methods';
     privateMethods.forEach(pm => mDiv.appendChild(buildMethodRow(pm.signature, pm, true)));
     secBody.appendChild(mDiv); body.appendChild(wrapper);
@@ -4419,7 +5221,7 @@ function _legacyCreateNodeEl(entry, opts = {}) {
   // --- Aliases (P8-04) ---
   const aliases = entry.typeAliases || [];
   if (aliases.length > 0) {
-    const {wrapper, secBody} = makeSection(T('nodeAliases'), aliases.length, true);
+    const {wrapper, secBody} = makeSection(T('nodeAliases'), aliases.length, false);
     const aDiv = document.createElement('div'); aDiv.className = 'node-methods';
     aliases.forEach(({ alias, canonical }) => {
       const row = document.createElement('div');
@@ -4530,16 +5332,60 @@ function toggleCollapse(className, el, btn) {
     btn.textContent = '▶';
     btn.title = T('nodeExpand');
   }
+  _relayoutAfterNodeSizeChange();
+}
+
+/** Re-measure node boxes and resolve overlaps after any node content size change. */
+function _relayoutAfterNodeSizeChange() {
   requestAnimationFrame(() => {
+    Object.values(nodes).forEach(n => {
+      if (n.el.style.display === 'none') return;
+      _autoFitNodeWidth(n);
+      n.w = n.el.offsetWidth || n.w;
+      n.h = n.el.offsetHeight || n.h;
+    });
+    resolveOverlaps();
+    redrawEdges();
+    renderMinimap();
+  });
+}
+
+let _liveNoOverlapRelayoutPending = false;
+function _scheduleLiveNoOverlapRelayout() {
+  if (_liveNoOverlapRelayoutPending) return;
+  _liveNoOverlapRelayoutPending = true;
+  requestAnimationFrame(() => {
+    _liveNoOverlapRelayoutPending = false;
+    // Do not call _autoFitNodeWidth here: during drag/resize, scrollWidth can
+    // read inflated values and cards "grow" every frame. Only remeasure.
     Object.values(nodes).forEach(n => {
       if (n.el.style.display === 'none') return;
       n.w = n.el.offsetWidth || n.w;
       n.h = n.el.offsetHeight || n.h;
     });
-    if (wasCollapsed) resolveOverlaps();
+    resolveOverlaps();
     redrawEdges();
     renderMinimap();
   });
+}
+
+/** Auto-fit card width to longest visible attribute/method line (no ellipsis, no wrap). */
+function _autoFitNodeWidth(node) {
+  if (!node || !node.el) return;
+  const el = node.el;
+  if (el.classList.contains('resized')) return;
+  const body = el.querySelector('.node-body');
+  const bodyExpanded = !body || body.classList.contains('expanded');
+  const contentEls = [
+    ...el.querySelectorAll('.node-class-name, .node-responsibility'),
+    ...(bodyExpanded ? [...el.querySelectorAll('.node-attribute, .node-method-name, .node-method')] : []),
+  ];
+  let maxTextW = 180;
+  contentEls.forEach(c => { maxTextW = Math.max(maxTextW, c.scrollWidth || 0); });
+  const target = Math.min(Math.max(200, maxTextW + 54), Math.floor(window.innerWidth * 0.82));
+  if (!nodeResize || nodeResize.className !== node.entry.className) {
+    el.style.width = target + 'px';
+  }
 }
 
 function trimSignature(sig) {
@@ -4879,6 +5725,7 @@ function addEntriesToCanvas(entries) {
   requestAnimationFrame(() => {
     Object.values(nodes).forEach(n => {
       if (n.el.style.display === 'none') return;
+      _autoFitNodeWidth(n);
       n.w = n.el.offsetWidth || n.w;
       n.h = n.el.offsetHeight || n.h;
     });
@@ -5022,14 +5869,31 @@ function getVisibleEntries() {
   let raw;
   if (traceSubgraph !== null) {
     raw = allEntries.filter(e => traceSubgraph.has(e.className));
+    if (filterPinnedClasses.size > 0) {
+      const inRaw = new Set(raw.map(e => e.className));
+      for (const cn of filterPinnedClasses) {
+        if (inRaw.has(cn) || !traceSubgraph.has(cn)) continue;
+        const ent = allEntries.find(e => e.className === cn);
+        if (ent) raw.push(ent);
+      }
+    }
   } else {
     const { matched, neighbors } = _filterEntries(filterRegex);
     raw = filterRegex ? [...matched, ...neighbors] : matched;
+    if (filterPinnedClasses.size > 0) {
+      const inRaw = new Set(raw.map(e => e.className));
+      for (const cn of filterPinnedClasses) {
+        if (inRaw.has(cn)) continue;
+        const ent = allEntries.find(e => e.className === cn);
+        if (ent) raw.push(ent);
+      }
+    }
   }
   return dedupeVisibleByClassName(raw);
 }
 
 function applyFilter(pattern) {
+  filterPinnedClasses.clear();
   const hadFilter = !!filterRegex;
   filterRegex = pattern || null;
   if (pattern && totalCount > 5000 && !pattern.startsWith('ns:')) {
@@ -5081,6 +5945,13 @@ const tracePanelList = document.getElementById('trace-panel-list');
 const tracePanelTitle= document.getElementById('trace-panel-title');
 document.getElementById('trace-panel-close').addEventListener('click', () => exitTraceMode());
 
+function _setFloatingTracePanelVisible(visible) {
+  const rp = document.getElementById('right-panel');
+  const rightOpen = !!(rp && rp.classList.contains('open') && !rp.classList.contains('collapsed'));
+  if (visible && !rightOpen) tracePanel.classList.add('visible');
+  else tracePanel.classList.remove('visible');
+}
+
 function exitTraceMode() {
   if (!traceMode) return;
   if (traceMode.rowEl) traceMode.rowEl.classList.remove('trace-method-active');
@@ -5090,7 +5961,7 @@ function exitTraceMode() {
     n.el.querySelectorAll('.trace-member-hit').forEach(el =>
       el.classList.remove('trace-member-hit'));
   });
-  tracePanel.classList.remove('visible');
+  _setFloatingTracePanelVisible(false);
   tracePanelList.innerHTML = '';
   traceMode = null;
 }
@@ -5117,7 +5988,7 @@ function enterTraceMode(entry, meta, rowEl) {
     tracePanelTitle.textContent = entry.className;
     tracePanelList.innerHTML = '<div class="trace-empty-msg">' +
       'No method metadata available.</div>';
-    tracePanel.classList.add('visible');
+    _setFloatingTracePanelVisible(true);
     return;
   }
 
@@ -5158,7 +6029,7 @@ function enterTraceMode(entry, meta, rowEl) {
       '<span style="color:#888;font-size:10px;">' +
       'Possible reasons: method body not in parsed files, ' +
       'or only a declaration without definition.</span></div>';
-    tracePanel.classList.add('visible');
+    _setFloatingTracePanelVisible(true);
     // Request full call tree + caller tree from extension
     vscode.postMessage({ type: 'requestCallTree', className: entry.className, methodSignature: sig });
     vscode.postMessage({ type: 'requestCallerTree', className: entry.className, methodSignature: sig });
@@ -5232,8 +6103,7 @@ function enterTraceMode(entry, meta, rowEl) {
       tracePanelList.querySelectorAll('.trace-step').forEach(r => r.classList.remove('active-step'));
       row.classList.add('active-step');
       if (!isSelf) {
-        const cn = step.targetClass.split('::').pop();
-        if (nodes[cn]) centerOn(cn);
+        _smartJumpToClass(step.targetClass);
       } else if (srcNode) {
         centerOn(entry.className);
       }
@@ -5241,7 +6111,7 @@ function enterTraceMode(entry, meta, rowEl) {
     tracePanelList.appendChild(row);
   });
 
-  tracePanel.classList.add('visible');
+  _setFloatingTracePanelVisible(true);
 
   // M27-11: Request recursive call tree from extension
   vscode.postMessage({ type: 'requestCallTree', className: entry.className, methodSignature: sig });
@@ -5437,9 +6307,8 @@ window.addEventListener('mousemove', e => {
       n.el.classList.add('resized');
       // P7-03: persist width
       nodeWidths[nodeResize.className] = newW;
-      // P7-04: redraw edges in real-time
-      redrawEdges();
-      renderMinimap();
+      // Keep all cards non-overlapping continuously while resizing.
+      _scheduleLiveNoOverlapRelayout();
     }
     return;
   }
@@ -5456,8 +6325,8 @@ window.addEventListener('mousemove', e => {
       n.el.style.top  = ny + 'px';
       // UI-02: save position
       nodePositions[nodeDrag.className] = { x: nx, y: ny };
-      redrawEdges();
-      renderMinimap();
+      // Keep all cards non-overlapping continuously while dragging.
+      _scheduleLiveNoOverlapRelayout();
     }
     return;
   }
@@ -5490,6 +6359,8 @@ window.addEventListener('mouseup', e => {
       n.el.classList.remove('node-resizing');
     }
     nodeResize = null;
+    // Enforce no-overlap rule after manual resize.
+    _relayoutAfterNodeSizeChange();
   }
   if (nodeDrag) {
     const n = nodes[nodeDrag.className];
@@ -5743,6 +6614,9 @@ function updateInfoBar(visible, matched, total) {
   if (filterRegex && matched < visible) {
     text += T('infoBarMatched', { matched, rest: visible - matched });
   }
+  if (filterPinnedClasses.size > 0) {
+    text += ` · +${filterPinnedClasses.size} pinned`;
+  }
   if (total > allEntries.length) {
     text += T('infoBarSearchingTotal', { total: total.toLocaleString() });
   } else if (total > VIEW_LIMIT && !filterRegex) {
@@ -5770,15 +6644,7 @@ document.getElementById('btn-expand-all').addEventListener('click', () => {
     n.el.classList.add('node-card-expanded');
     if (btn)  { btn.textContent = '▼'; btn.title = T('nodeCollapse'); }
   });
-  requestAnimationFrame(() => {
-    Object.values(nodes).forEach(n => {
-      if (n.el.style.display === 'none') return;
-      n.w = n.el.offsetWidth || n.w;
-      n.h = n.el.offsetHeight || n.h;
-    });
-    resolveOverlaps();
-    redrawEdges(); renderMinimap();
-  });
+  _relayoutAfterNodeSizeChange();
 });
 document.getElementById('btn-collapse-all').addEventListener('click', () => {
   Object.keys(nodes).forEach(name => {
@@ -5790,14 +6656,7 @@ document.getElementById('btn-collapse-all').addEventListener('click', () => {
     n.el.classList.remove('node-card-expanded');
     if (btn)  { btn.textContent = '▶'; btn.title = T('nodeExpand'); }
   });
-  requestAnimationFrame(() => {
-    Object.values(nodes).forEach(n => {
-      if (n.el.style.display === 'none') return;
-      n.w = n.el.offsetWidth || n.w;
-      n.h = n.el.offsetHeight || n.h;
-    });
-    redrawEdges(); renderMinimap();
-  });
+  _relayoutAfterNodeSizeChange();
 });
 
 let _filterDebounceTimer = null;
@@ -5808,6 +6667,7 @@ document.getElementById('btn-filter-clear').addEventListener('click', () => {
   clearTimeout(_filterDebounceTimer);
   document.getElementById('filter-input').value = '';
   traceSubgraph = null;
+  filterPinnedClasses.clear();
   if (!filterRegex) {
     Object.keys(nodePositions).forEach(k => delete nodePositions[k]);
     updateFilterChrome();
@@ -5815,6 +6675,13 @@ document.getElementById('btn-filter-clear').addEventListener('click', () => {
     return;
   }
   applyFilter('');
+});
+
+document.getElementById('btn-pinned-clear').addEventListener('click', () => {
+  if (filterPinnedClasses.size === 0) return;
+  filterPinnedClasses.clear();
+  updateFilterChrome();
+  renderAll();
 });
 
 document.getElementById('filter-input').addEventListener('input', e => {
@@ -5889,6 +6756,7 @@ document.getElementById('ctx-explore-here').addEventListener('click', () => {
   // Reset allEntries display to just this entry; reset filter
   document.getElementById('filter-input').value = '';
   filterRegex = null;
+  filterPinnedClasses.clear();
   // We keep allEntries intact (full index) but render only this node
   allEntries = allEntries.filter(Boolean); // no-op, keep full list
   // Custom render: single node centered
@@ -5958,8 +6826,22 @@ const Canvas = Object.freeze({
 
 // Keyboard shortcuts
 window.addEventListener('keydown', e => {
-  if (document.activeElement === document.getElementById('filter-input')) return;
+  const ae = document.activeElement;
+  const inInput = ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT' || ae.isContentEditable);
+  if (inInput) return;
+  if (e.key === '/') {
+    e.preventDefault();
+    const fi = document.getElementById('filter-input');
+    if (fi) fi.focus();
+    return;
+  }
   if (e.key === 'f' || e.key === 'F') fitView();
+  if (e.key === 'r' || e.key === 'R') relayoutDiagram();
+  if (e.key === 'e' || e.key === 'E') document.getElementById('btn-expand-all')?.click();
+  if (e.key === 'c' || e.key === 'C') document.getElementById('btn-collapse-all')?.click();
+  if (e.key === 'j' || e.key === 'J') {
+    if (selectedClass && nodes[selectedClass]) jumpToSource(nodes[selectedClass].entry);
+  }
   // P5-11: Ctrl+Z undo expansion
   if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undoExpand(); }
   if (e.key === 'Escape') {

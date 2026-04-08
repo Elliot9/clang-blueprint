@@ -708,7 +708,7 @@ class ASTVisitor:
             "set_value", "store",
             "append", "add", "put",
             # operator-like
-            "operator=",
+            "operator=", "operator[]",
         })
 
         # Track CALL_EXPR locations already handled via MEMBER_REF_EXPR
