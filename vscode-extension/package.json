@@ -161,6 +161,19 @@
           "type": "string",
           "default": "",
           "description": "Google Gemini API key for AI-powered analysis. Required when analysisProvider is 'gemini'. Get your key at aistudio.google.com."
+        },
+        "clangBlueprint.uiLocale": {
+          "type": "string",
+          "enum": [
+            "zh-TW",
+            "en"
+          ],
+          "enumDescriptions": [
+            "Traditional Chinese (繁體中文)",
+            "English"
+          ],
+          "default": "zh-TW",
+          "description": "Language for the class diagram webview toolbar, panels, and context menu."
         }
       }
     },

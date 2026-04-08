@@ -13,6 +13,8 @@ import { buildChatContext } from '../analysis/context';
 
 export class ChatController implements ModeController {
   private panel: vscode.WebviewPanel | undefined;
+  /** Optional second webview (AI Chat popout) — receives same stream as main. */
+  private popoutWebview: vscode.Webview | undefined;
   private history: ChatMessage[] = [];
   private static readonly CHAT_TIMEOUT_MS = 120_000;
 
@@ -28,10 +30,29 @@ export class ChatController implements ModeController {
 
   deactivate(): void {
     this.panel = undefined;
+    // popoutWebview is cleared only via registerPopoutWebview(undefined) when the popout tab closes
+  }
+
+  /** Attach/detach standalone chat tab (does not replace main webview). */
+  registerPopoutWebview(webview: vscode.Webview | undefined): void {
+    this.popoutWebview = webview;
+  }
+
+  private _postToChatSurfaces(message: unknown): void {
+    try {
+      this.panel?.webview.postMessage(message);
+    } catch {
+      /* ignore */
+    }
+    try {
+      this.popoutWebview?.postMessage(message);
+    } catch {
+      /* ignore */
+    }
   }
 
   handleMessage(message: WebviewToExtension): boolean {
-    if (!this.panel) { return false; }
+    if (!this.panel && !this.popoutWebview) { return false; }
 
     switch (message.type) {
       case 'chatMessage':
@@ -46,7 +67,7 @@ export class ChatController implements ModeController {
   }
 
   private async _handleChat(text: string, contextNames: string[]): Promise<void> {
-    if (!this.panel) { return; }
+    if (!this.panel && !this.popoutWebview) { return; }
 
     // Append user message to history
     this.history.push({ role: 'user', content: text });
@@ -59,7 +80,7 @@ export class ChatController implements ModeController {
       let assistantReply = '';
       const chatPromise = this.provider.chat(this.history, context, (chunk) => {
         assistantReply += chunk;
-        this.panel?.webview.postMessage({ type: 'chatChunk', chunk });
+        this._postToChatSurfaces({ type: 'chatChunk', chunk });
       });
       const timeoutPromise = new Promise<never>((_, reject) => {
         setTimeout(() => reject(new Error('AI chat timed out.')), ChatController.CHAT_TIMEOUT_MS);
@@ -73,13 +94,13 @@ export class ChatController implements ModeController {
     } catch (err) {
       const errText = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
       this.log?.(`Chat request failed. provider=${this.provider.providerId} error=${errText}`);
-      this.panel.webview.postMessage({
+      this._postToChatSurfaces({
         type: 'extensionError',
         message: `Chat error: ${errText}`,
       });
     } finally {
       this.log?.('Chat request finalized (chatDone sent).');
-      this.panel.webview.postMessage({ type: 'chatDone' });
+      this._postToChatSurfaces({ type: 'chatDone' });
     }
   }
 }

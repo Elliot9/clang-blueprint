@@ -70,11 +70,11 @@ export interface ClassEntry {
   // Type aliases discovered in this class (P8-04)
   typeAliases?: Array<{ alias: string; canonical: string; depType?: string }>;
 
-  // Semantic enrichment — populated by heuristic enricher or LLM post-processing
-  intent?: string;               // one-line description of why this class exists
-  designPattern?: string;        // detected pattern: Singleton, Factory, Observer, etc.
-  tradeoffs?: string;            // known design trade-offs or constraints
-  changeRisk?: 'low' | 'medium' | 'high'; // estimated impact risk when modifying
+  // Semantic enrichment fields (M28-01, populated by SemanticEnricher)
+  intent?: string;
+  tradeoffs?: string[];
+  changeRisk?: 'high' | 'medium' | 'low';
+  designPattern?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -104,7 +104,12 @@ export interface EntryPoint {
   reason: string;
 }
 
-/** V2 index wrapper — if version field is missing, treat as V1 (bare ClassEntry[]) */
+/**
+ * V3 index wrapper.
+ * - v1: bare ClassEntry[] (no wrapper)
+ * - v2: object with modules/moduleEdges/entryPoints
+ * - v3: v2 + semantic enrichment fields on ClassEntry (intent/tradeoffs/changeRisk/designPattern)
+ */
 export interface BlueprintIndex {
   version: number;
   projectName?: string;

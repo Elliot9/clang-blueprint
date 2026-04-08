@@ -1263,4 +1263,324 @@ AI Layer                               IAnalysisProvider（local / claude / gemi
   └─ NEW: explainArchitecture()        架構設計意圖解釋
 Data Layer       (Scanner)             AST → 結構化資料，不知道 UI 存在
   └─ NEW: blueprint_index.json v2      modules[] + moduleEdges[] + entryPoints[]
+  └─ NEW: blueprint_index.json v3      intent / tradeoffs / changeRisk / designPattern
+Pi Agent Layer                         自然語言終端介面，查詢 Blueprint 再執行修改
+  └─ NEW: pi_agent/                    planner / executor / reporter
+Human Comprehension Layer              AI 修改後的分層變更報告
+  └─ NEW: ChangeReport                 Why / What(高層) / What(具體) / Risk
 ```
+
+---
+
+## ⚡ Phase 28：Schema 語意擴展 — Semantic Enrichment Layer
+
+> **問題**：目前 ClassEntry 只有結構資料（dependency、interface、baseClass），
+> 沒有語意資料（設計意圖、trade-off、修改風險、設計模式）。
+> AI 無法回答「為什麼這樣設計」、「改這裡有什麼風險」。
+>
+> **目標**：blueprint_index.json schema 新增語意欄位，由 LLM 在 scan 後自動生成，
+> 增量更新（只重新分析有變更的 class）。
+>
+> **成果**：每個 ClassEntry 有 `intent`、`tradeoffs`、`changeRisk`、`designPattern`，
+> Pi Agent 和 VS Code 插件都可查詢。
+
+### M28-01 — 擴展 `ClassEntry` schema（scanner/ast_parser.py + shared/types.ts）
+- 新增欄位：
+  ```json
+  {
+    "intent": "One sentence: what this class is responsible for",
+    "tradeoffs": ["Tight coupling to NVMeDriver limits testability"],
+    "changeRisk": "high | medium | low",
+    "designPattern": "Observer | Strategy | Singleton | null"
+  }
+  ```
+- scanner 輸出這些欄位，預設值為 `null`（尚未分析）
+- `blueprint_index.json` version 升為 3
+- 向下相容：version < 3 的欄位視為 null
+- **可獨立開發**：純 schema 變更
+- **驗收**：`npm run compile` 無錯；scan 產出欄位（值為 null）
+
+### M28-02 — Heuristic Semantic Enricher（scanner/semantic_enricher.py，無 LLM）
+- **預設行為**：不需任何 API key，掃描完自動執行，100% 離線
+- 純函數 `heuristic_enrich(entry: ClassEntry) → SemanticFields`，規則如下：
+  - `intent`：`responsibility` label + class name 拆詞 → 組合一句話
+    （e.g. `DiskManager` + `Resource Lifecycle` → `"Manages disk resource lifecycle"`）
+  - `tradeoffs`：
+    - 有 `shared_ptr` dependency → `"Shared ownership may cause lifecycle ambiguity"`
+    - 繼承層數 > 2 → `"Deep inheritance increases coupling"`
+    - 出度 > 8（依賴很多類）→ `"High fan-out, potential god-class"`
+    - 入度 = 0 且出度 > 0 → `"Root node, changes propagate widely"`
+  - `changeRisk`：
+    - 入度（被依賴數）≥ 5 → `"high"`
+    - 入度 2-4 → `"medium"`
+    - 入度 0-1 → `"low"`
+  - `designPattern`：命名 heuristic
+    - 名稱含 `Observer`/`Listener` → `"Observer"`
+    - 名稱含 `Factory` → `"Factory"`
+    - 名稱含 `Singleton` + 有 static member → `"Singleton"`
+    - 名稱含 `Strategy`/`Policy` → `"Strategy"`
+    - 名稱含 `Decorator`/`Wrapper` → `"Decorator"`
+    - 否則 → `null`
+- 不需快取（純計算，速度夠快）
+- **可獨立開發**：純函數，不依賴外部 API
+- **驗收**：對 `examples/storage_engine/` 的每個 class 輸出非空 `intent` 和 `changeRisk`；`pytest tests/test_semantic_enricher.py::test_heuristic` all pass
+
+### M28-03 — LLM Semantic Enricher（scanner/semantic_enricher.py，opt-in）
+- **opt-in**：只在設定了 API key 且明確指定 `--enrich-llm` 時執行
+- 輸入：`ClassEntry[]` + 上一次的 LLM 快取（`.blueprint_semantic_cache.json`）
+- 對每個 class：
+  - 如果 class hash 未變（增量）→ 復用快取，不呼叫 LLM
+  - 如果 hash 變了 → 呼叫 LLM，用 heuristic 結果作為 few-shot 範例
+- LLM prompt：提供 classDigest（className, responsibility, interfaces, dependencies top-5）
+  → 要求返回 `{ intent, tradeoffs[], changeRisk, designPattern }` JSON
+  → heuristic 結果作為 `"baseline"` 欄位一起傳入，讓 LLM 知道起點
+- 快取格式：`{ classHash: string, semantics: {...} }`
+- fallback：LLM 失敗或無 API key → 自動 fallback 到 heuristic 結果，不 crash
+- **驗收**：首次執行全量生成；第二次未變更 class 不重新呼叫；network error 時 fallback 正確
+
+### M28-04 — CLI 整合（scanner/main.py）
+- 預設行為（無 flag）：scan 後自動執行 heuristic enrichment，無需 API key
+- `--enrich-llm`：額外呼叫 LLM enricher（需設定 `ANTHROPIC_API_KEY` 或 `GEMINI_API_KEY`）
+- 新增 `enrich` 子命令：對現有 `blueprint_index.json` 補充語意欄位
+  - `python -m scanner.main enrich`（heuristic，預設）
+  - `python -m scanner.main enrich --llm`（LLM opt-in）
+- 輸出統計：`Enriched 42 classes (heuristic: 42, llm: 0)`
+- **驗收**：無 API key 的環境下 `python -m scanner.main scan` 正常完成並有語意欄位
+
+### M28-05 — VS Code 插件：顯示語意欄位
+- Explore Mode 右 Panel AI Summary：如果有 `intent` → 優先顯示，替代 heuristic
+- Trace Mode Impact Panel：`changeRisk` 顯示彩色 badge（高=紅、中=黃、低=綠）
+- Node hover tooltip（M26-01）：加入 `designPattern` badge（如有）
+- **依賴**：M28-01 型別更新
+- **驗收**：index 有語意欄位時正確顯示；沒有時 graceful fallback
+
+### M28-06 — 測試（tests/test_semantic_enricher.py）
+- `test_heuristic`：對 mock ClassEntry 驗證 intent / changeRisk / tradeoffs / designPattern 規則
+- `test_heuristic_no_api_key`：無 API key 環境下 full scan pipeline 正常完成
+- `test_llm_cache_hit`：hash 不變 → 不呼叫 LLM（mock LLM 呼叫計數 = 0）
+- `test_llm_cache_miss`：hash 改變 → 重新生成（mock LLM 呼叫計數 = 1）
+- `test_llm_fallback`：LLM 拋 exception → fallback 到 heuristic，不 crash
+- **驗收**：`pytest tests/test_semantic_enricher.py -v` all pass
+
+---
+
+## ⚡ Phase 29：Pi Agent — 終端自然語言介面
+
+> **問題**：目前用戶需要手動修改程式碼、手動執行 scan，
+> 沒有「先查詢影響範圍再修改」的保護機制。
+> AI 修改速度遠超人類理解速度，沒有橋接層。
+>
+> **目標**：建立 Pi Agent CLI，用自然語言下指令，
+> Agent 先查 Blueprint 確認影響範圍和 trade-off，確認後執行修改，
+> 觸發增量 scan，輸出變更報告。
+>
+> **成果**：`python -m pi_agent.cli "extract the read path into a separate class"`
+> → Agent 查詢影響 → 顯示確認摘要 → 用戶確認 → 修改程式碼 → 增量 scan → 輸出變更報告
+
+### M29-01 — Pi Agent 骨架（pi_agent/）
+- 建立 `pi_agent/` 目錄：`cli.py`、`planner.py`、`executor.py`、`reporter.py`
+- `cli.py`：argparse + REPL 兩種模式
+  - `python -m pi_agent.cli "your intent"`（單次）
+  - `python -m pi_agent.cli --repl`（互動 shell）
+- 流程：`parse intent → plan → confirm → execute → scan → report`
+- **可獨立開發**：骨架先建，各步驟 stub
+- **驗收**：`python -m pi_agent.cli "hello"` 不 crash，顯示 stub 輸出
+
+### M29-02 — Blueprint Query Layer（pi_agent/blueprint_query.py）
+- 對 `blueprint_index.json` 的查詢介面（不依賴 ai_api server）：
+  - `find_class(name)` → ClassEntry
+  - `find_relevant(query_text, top_k)` → ClassEntry[]（復用 TF-IDF indexer）
+  - `get_impact(class_name, n_hop)` → 影響集合（BFS on reverseDeps）
+  - `get_module(class_name)` → ModuleEntry
+  - `get_entry_points()` → EntryPoint[]
+- 結果格式化為 compact token-efficient 表示（給 LLM 用）
+- **可獨立開發**：純函數，不需 server
+- **驗收**：單元測試覆蓋四種查詢
+
+### M29-03 — Planner（pi_agent/planner.py）
+- 輸入：自然語言 intent + Blueprint context
+- 呼叫 LLM 生成 `ChangePlan`：
+  ```json
+  {
+    "intent": "extract the read path into a separate class",
+    "targetClasses": ["DiskManager", "BufferPool"],
+    "proposedChanges": [
+      { "type": "extract_class", "from": "DiskManager", "newClass": "ReadPathManager" }
+    ],
+    "impactedClasses": ["PageCache", "IoScheduler"],
+    "riskLevel": "medium",
+    "tradeoffs": ["Adds indirection", "Improves testability"]
+  }
+  ```
+- 在生成前先用 `blueprint_query.py` 取結構 context（節省 token）
+- **依賴**：M29-02
+- **驗收**：mock LLM 返回合法 ChangePlan；Blueprint context 被正確注入 prompt
+
+### M29-04 — 確認介面（pi_agent/cli.py）
+- 執行前顯示確認摘要：
+  ```
+  Intent:  Extract read path into ReadPathManager
+  Targets: DiskManager, BufferPool
+  Impact:  PageCache, IoScheduler (2 direct, 4 indirect)
+  Risk:    MEDIUM — adds indirection layer
+
+  Proceed? [y/N/explain]
+  ```
+- `explain` 選項 → 顯示完整 ChangePlan + trade-off 詳細說明
+- 用戶確認 `y` 才執行；`N` 中止；預設為 N（安全第一）
+- **驗收**：正確顯示 risk 和 impact；拒絕時不執行任何修改
+
+### M29-05 — Executor（pi_agent/executor.py）
+- 接收 `ChangePlan`，呼叫 Claude API 實際修改程式碼
+- 修改後自動觸發增量 scan：`incremental_scan(project_root)`
+- 記錄修改前後的 class hash 快照（用於 M29-06 的 diff）
+- **依賴**：M29-03
+- **驗收**：mock 修改 → 觸發增量 scan → index 更新
+
+### M29-06 — Reporter（pi_agent/reporter.py）
+- 比較修改前後的 `ClassEntry` diff，生成變更報告（依賴 Phase 30 的格式）
+- 報告輸出到 terminal + 寫入 `.blueprint_change_log/` 目錄
+- **依賴**：Phase 30 的 ChangeReport 格式
+
+---
+
+## ⚡ Phase 30：Human Comprehension Layer — 變更報告
+
+> **問題**：AI 修改程式碼的速度遠超人類逐行 review 的能力。
+> 用戶需要「分層摘要」來快速判斷修改是否正確，而不是看 raw diff。
+>
+> **目標**：每次 Pi Agent 修改後，自動生成結構化變更報告，
+> 從高層意圖到具體 class 變更均清楚呈現。
+>
+> **成果**：變更報告顯示於 terminal + VS Code 插件側邊欄，
+> 包含 Why / What（高層）/ What（具體）/ Risk 四個維度。
+
+### M30-01 — `ChangeReport` 資料結構（shared schema）
+- 定義在 `scanner/change_report.py`（Python）和 `shared/types.ts`（TypeScript）：
+  ```json
+  {
+    "reportId": "uuid",
+    "timestamp": "ISO8601",
+    "intent": "Extract read path into ReadPathManager",
+    "summary": "Moved 3 methods from DiskManager to new ReadPathManager class",
+    "highLevel": {
+      "modulesAffected": ["storage"],
+      "designDecisions": ["Added abstraction layer", "Separated concerns"]
+    },
+    "concrete": {
+      "classesAdded": ["ReadPathManager"],
+      "classesModified": ["DiskManager", "BufferPool"],
+      "interfacesChanged": [
+        { "class": "DiskManager", "removed": ["readBlock(int, char*)"] }
+      ],
+      "dependenciesChanged": [
+        { "from": "BufferPool", "to": "ReadPathManager", "type": "composition", "was": null }
+      ]
+    },
+    "risk": {
+      "level": "medium",
+      "items": ["BufferPool now depends on new interface — verify no ABI break"]
+    }
+  }
+  ```
+- **可獨立開發**
+- **驗收**：compile 通過；JSON schema 驗證通過
+
+### M30-02 — `ChangeReportGenerator`（scanner/change_report.py）
+- 輸入：修改前 `ClassEntry[]` snapshot + 修改後 `ClassEntry[]`
+- Diff 計算（純函數）：新增/刪除/修改的 class、interface 增刪、dependency 增刪
+- LLM 生成 `intent` 摘要（如果從 Pi Agent 來 → 直接用 ChangePlan.intent）
+- 生成 `designDecisions`（LLM 或 heuristic）
+- **驗收**：mock before/after snapshot → 正確 diff；LLM 欄位有 fallback
+
+### M30-03 — Terminal 變更報告顯示（pi_agent/reporter.py）
+- 彩色 terminal 輸出（ANSI codes）：
+  ```
+  ═══════════════ Change Report ════════════════
+  WHY     Extract read path into ReadPathManager
+
+  WHAT (High Level)
+    Modules:  storage
+    Decisions: Added abstraction layer, Separated concerns
+
+  WHAT (Concrete)
+    + ReadPathManager (new)
+    ~ DiskManager: removed readBlock()
+    ~ BufferPool: dependency → ReadPathManager (new)
+
+  RISK    MEDIUM
+    ⚠ BufferPool now depends on new interface — verify no ABI break
+  ══════════════════════════════════════════════
+  ```
+- 寫入 `.blueprint_change_log/{timestamp}.json`
+- **驗收**：輸出格式正確；JSON 文件寫入成功
+
+### M30-04 — VS Code 插件：Change Log 側邊欄
+- 新增 TreeView：「Blueprint Change Log」
+- 列出 `.blueprint_change_log/` 內的報告（倒序，最新在上）
+- 點擊報告 → 在右 Panel 顯示完整 ChangeReport（格式化）
+- 報告中的 class name 可點擊 → Canvas 聚焦
+- **依賴**：M30-01 型別
+- **驗收**：有 log 文件時 TreeView 顯示；點擊顯示詳情
+
+### M30-05 — 測試（tests/test_change_report.py）
+- diff 計算正確性（新增、刪除、修改各 case）
+- JSON schema 驗證
+- **驗收**：`pytest tests/test_change_report.py -v` all pass
+
+---
+
+## ⚡ Phase 31：驗證實驗 — Blueprint vs DeepWiki Benchmark
+
+> **目標**：用真實專案執行比較實驗，量化 Blueprint 的優勢，
+> 作為 open-source README 的核心證據。
+>
+> **成果**：5 個指標的對比數據表格，可重現的測試腳本。
+
+### M31-01 — 選定對照專案
+- 選擇一個真實 C++ 開源專案（建議：LevelDB、RocksDB 子模組，或擴大版 storage_engine）
+- 標準：10k-50k LOC、有清晰模組邊界、有 AI 可回答的設計問題
+- 用 Blueprint 完整 scan + enrich；用 baseline（repo-level RAG）對同一專案建立索引
+- **驗收**：兩套索引均建立完成
+
+### M31-02 — 設計 20 組測試問題
+- 問題類型：
+  - 結構問題（「誰依賴 DiskManager」）→ Blueprint 預期 100% 正確
+  - 設計意圖問題（「為什麼用 shared_ptr 而不是 unique_ptr」）→ 比較 LLM 回答品質
+  - 修改風險問題（「改 readBlock interface 會影響什麼」）→ Blueprint 有優勢
+  - 探索引導問題（「從哪裡開始理解這個系統」）→ 比較用戶認知效率
+- 每個問題有人工標註的 ground truth
+- **驗收**：20 組 Q&A + ground truth 文件完成
+
+### M31-03 — 自動化測試腳本（tests/benchmark/）
+- `benchmark_accuracy.py`：對 20 問題各跑 Blueprint query + baseline，計算準確率
+- `benchmark_tokens.py`：記錄每次查詢的 token 消耗
+- `benchmark_structure.py`：比較結構關係正確率（Blueprint AST vs LLM 推理）
+- 輸出 `benchmark_results.json`
+- **驗收**：腳本可重現執行；數字有原始數據支撐
+
+### M31-04 — 結果分析與文檔（docs/benchmark.md）
+- 整理 5 個指標的數據表格：
+  | 指標 | Baseline | Blueprint |
+  |---|---|---|
+  | 回答準確率 | X% | Y% |
+  | 每次查詢 token 消耗 | X | Y |
+  | 結構關係正確率 | 估算 | 100%（AST 保證）|
+  | 修改風險提示 | 無 | changeRisk + impact |
+  | 人類理解成本 | 逐行 review | 分層摘要 |
+- **驗收**：`docs/benchmark.md` 完成，可作為 README 的引用材料
+
+---
+
+## 優先順序（Phase 28–31）
+
+**建議執行順序：**
+
+1. **P28**（語意擴展）→ Pi Agent 和 Change Report 都依賴語意欄位，必須先完成
+2. **P29 + P30**（可並行）→ Pi Agent 終端介面 + 變更報告格式可同步設計
+3. **P31**（驗證實驗）→ 需要 P28 的語意欄位完成後才能真正測試 Blueprint 優勢
+
+**里程碑：**
+- **M5**：P28 完成 → `blueprint_index.json` 有語意欄位，VS Code 顯示 risk badge
+- **M6**：P29-P30 完成 → `python -m pi_agent.cli` 可用，有 terminal 變更報告
+- **M7**：P31 完成 → Benchmark 數據公開，open-source README 完整
