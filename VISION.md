@@ -181,6 +181,46 @@ blueprint_index.json + blueprint_changes.json
 
 ---
 
+## Current Implementation Status
+
+### Done ✅
+- `blueprint scan`: libclang AST extraction, heuristic enrichment (`intent`, `designPattern`, `changeRisk`, `tradeoffs`), module grouping, entry point detection
+- `blueprint enrich --llm`: class-level LLM enrichment (Anthropic / Gemini), hash-based cache, writes back to `blueprint_index.json`
+- Wiki Panel (VS Code Webview): Sidebar, SystemPage, ModulePage, ClassPage, Mermaid diagrams, source jump
+- `blueprint diff` CLI: not yet implemented
+- Schema: `ClassEntry` semantic fields in place; module/project prose fields missing
+
+### Direction A — LLM Narrative (Partially done)
+| Sub-task | Status |
+|----------|--------|
+| Class-level heuristic enrichment | ✅ |
+| Class-level LLM enrichment (`blueprint enrich --llm`) | ✅ |
+| `ModuleEntry.summary` schema field | ❌ |
+| `BlueprintIndex.projectSummary` schema field | ❌ |
+| Module-level LLM summary generation | ❌ |
+| Project-level LLM summary generation | ❌ |
+| Class intent: richer prose (2–3 sentences, not ≤20 words) | ❌ |
+| `SystemPage` project narrative section | ❌ |
+| `ModulePage` module summary section | ❌ |
+
+### Direction B — Change Report
+| Sub-task | Status |
+|----------|--------|
+| `scanner/diff_engine.py` | ❌ |
+| `blueprint diff` CLI command | ❌ |
+| `blueprint_changes.json` schema + output | ❌ |
+| Wiki Changes page | ❌ |
+
+### Direction C — Pi Agent
+| Sub-task | Status |
+|----------|--------|
+| Terminal natural language interface | ❌ |
+| Blueprint context query for Agent | ❌ |
+| Agent reads `blueprint_changes.json` at session start | ❌ |
+| Post-modification scan + diff trigger | ❌ |
+
+---
+
 ## Open Source Positioning
 
 - Published on GitHub for developers to self-host
