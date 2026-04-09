@@ -83,7 +83,7 @@ export function ClassPage({ cls, index, onNavigate }: Props) {
 
       {/* Intent + metadata strip */}
       <section class="meta-strip">
-        {cls.intent && <p class="class-intent">"{cls.intent}"</p>}
+        {cls.intent && <p class="class-intent">{cls.intent}</p>}
         <div class="meta-tags">
           {cls.designPattern && <span class="pattern-tag">⬡ {cls.designPattern}</span>}
           <RiskBadge risk={cls.changeRisk} />

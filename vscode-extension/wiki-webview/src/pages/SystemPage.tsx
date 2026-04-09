@@ -34,6 +34,9 @@ export function SystemPage({ index, onNavigate }: Props) {
       <header class="page-header">
         <h1 class="page-title">{index.projectName || 'Project'}</h1>
         <div class="page-subtitle">System Overview</div>
+        {index.projectSummary && (
+          <p class="page-prose">{index.projectSummary}</p>
+        )}
       </header>
 
       <section class="stats-row">

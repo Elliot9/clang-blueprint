@@ -12,7 +12,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 
-import type { BlueprintIndex } from '../shared/types';
+import type { BlueprintIndex, BlueprintChanges } from '../shared/types';
 
 type WikiMessage =
   | { type: 'ready' }
@@ -86,6 +86,12 @@ export class WikiPanel {
     return path.join(root, rel);
   }
 
+  private _changesPath(): string | undefined {
+    const indexPath = this._indexPath();
+    if (!indexPath) return undefined;
+    return path.join(path.dirname(indexPath), 'blueprint_changes.json');
+  }
+
   private _loadIndex(): void {
     const indexPath = this._indexPath();
     if (!indexPath || !fs.existsSync(indexPath)) {
@@ -107,20 +113,42 @@ export class WikiPanel {
     } catch (err) {
       vscode.window.showErrorMessage(`Blueprint Wiki: failed to load index — ${err}`);
     }
+
+    // Also send change history if available
+    this._loadChanges();
+  }
+
+  private _loadChanges(): void {
+    const changesPath = this._changesPath();
+    if (!changesPath || !fs.existsSync(changesPath)) return;
+
+    try {
+      const raw = JSON.parse(fs.readFileSync(changesPath, 'utf-8'));
+      const changes: BlueprintChanges = raw;
+      this.panel?.webview.postMessage({ type: 'loadChanges', changes });
+    } catch {
+      // blueprint_changes.json is optional — silently skip parse errors
+    }
   }
 
   private _setupWatcher(): void {
     const indexPath = this._indexPath();
     if (!indexPath) return;
 
-    const pattern = new vscode.RelativePattern(
-      path.dirname(indexPath),
-      path.basename(indexPath),
-    );
+    const dir = path.dirname(indexPath);
 
-    this.fileWatcher = vscode.workspace.createFileSystemWatcher(pattern);
+    // Watch blueprint_index.json
+    const indexPattern = new vscode.RelativePattern(dir, path.basename(indexPath));
+    this.fileWatcher = vscode.workspace.createFileSystemWatcher(indexPattern);
     this.fileWatcher.onDidChange(() => this._loadIndex());
     this.fileWatcher.onDidCreate(() => this._loadIndex());
+
+    // Watch blueprint_changes.json (optional, same directory)
+    const changesPattern = new vscode.RelativePattern(dir, 'blueprint_changes.json');
+    const changesWatcher = vscode.workspace.createFileSystemWatcher(changesPattern);
+    changesWatcher.onDidChange(() => this._loadChanges());
+    changesWatcher.onDidCreate(() => this._loadChanges());
+    this.context.subscriptions.push(changesWatcher);
   }
 
   private async _jumpToSource(file: string, line: number): Promise<void> {

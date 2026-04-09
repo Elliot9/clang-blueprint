@@ -245,62 +245,137 @@ def cmd_enrich(args: argparse.Namespace) -> int:
         return 1
 
     raw = _load_json(input_path)
+    # Normalise to v2+ object form
     if isinstance(raw, list):
-        entries = raw
-        reverse_deps: dict = {}
+        index: dict[str, Any] = {
+            "version": 4,
+            "classes": raw,
+            "modules": [],
+            "moduleEdges": [],
+            "entryPoints": [],
+        }
     else:
-        entries = raw.get("classes", [])
-        # Try to load reverse deps from graph file
-        graph_file = os.path.join(os.path.dirname(os.path.abspath(input_path)), "blueprint_graph.json")
-        if os.path.isfile(graph_file):
-            g = _load_json(graph_file)
-            reverse_deps = g.get("reverseDeps", {})
-        else:
-            reverse_deps = {}
+        index = raw
 
-    from scanner.semantic_enricher import enrich_all_heuristic, enrich_all_llm
+    entries = index.get("classes", [])
+
+    # Load reverse deps from graph file if available
+    graph_file = os.path.join(os.path.dirname(os.path.abspath(input_path)), "blueprint_graph.json")
+    reverse_deps: dict[str, list[str]] = {}
+    if os.path.isfile(graph_file):
+        g = _load_json(graph_file)
+        reverse_deps = g.get("reverseDeps", {})
+
+    from scanner.semantic_enricher import enrich_all_heuristic, enrich_index_llm
 
     use_llm = getattr(args, "llm", False)
-    if use_llm:
-        anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
-        gemini_key = os.environ.get("GEMINI_API_KEY")
-        if not anthropic_key and not gemini_key:
-            print(
-                "WARNING: --llm requires ANTHROPIC_API_KEY or GEMINI_API_KEY. "
-                "Falling back to heuristic.",
-                file=sys.stderr,
-            )
-            use_llm = False
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+    gemini_key = os.environ.get("GEMINI_API_KEY")
 
+    if use_llm and not anthropic_key and not gemini_key:
+        print(
+            "WARNING: --llm requires ANTHROPIC_API_KEY or GEMINI_API_KEY. "
+            "Falling back to heuristic only.",
+            file=sys.stderr,
+        )
+        use_llm = False
+
+    # Always run heuristic first (fast, no API)
     enrich_all_heuristic(entries, reverse_deps)
 
-    llm_n = cached_n = 0
     if use_llm:
         sem_cache = os.path.join(
             os.path.dirname(os.path.abspath(input_path)),
             ".blueprint_semantic_cache.json",
         )
-        total, llm_n, cached_n = enrich_all_llm(
-            entries, reverse_deps,
+        stats = enrich_index_llm(
+            index, reverse_deps,
             cache_path=sem_cache,
-            anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY"),
-            gemini_api_key=os.environ.get("GEMINI_API_KEY"),
+            anthropic_api_key=anthropic_key,
+            gemini_api_key=gemini_key,
         )
         print(
-            f"[blueprint] LLM enrichment: {llm_n} new, {cached_n} cached, {total} total"
+            f"[blueprint] LLM enrichment complete:\n"
+            f"  classes — {stats['classes_llm']} new, {stats['classes_cached']} cached\n"
+            f"  modules — {stats['modules_llm']} new, {stats['modules_cached']} cached\n"
+            f"  project — {'generated' if stats['project_llm'] else 'cached'}"
         )
     else:
+        print(f"[blueprint] Heuristic enrichment: {len(entries)} classes enriched (no LLM)")
+
+    index["version"] = 4
+    _save_json(input_path, index)
+    return 0
+
+
+def cmd_diff(args: argparse.Namespace) -> int:
+    """Handle the `diff` subcommand — diff two blueprint indices and append to blueprint_changes.json."""
+    from scanner.diff_engine import load_index_from_git, diff_indices, get_git_commit_meta
+
+    index_path: str = args.index or "blueprint_index.json"
+    from_ref: str = getattr(args, "from_ref", None) or "HEAD"
+    to_ref: str | None = getattr(args, "to_ref", None)
+    output_path: str = args.output or "blueprint_changes.json"
+
+    # ---- Load "old" index ----
+    old_index = load_index_from_git(from_ref, index_path)
+    if old_index is None:
         print(
-            f"[blueprint] Heuristic enrichment: {len(entries)} classes "
-            f"(heuristic: {len(entries)}, llm: 0)"
+            f"[blueprint diff] No index found at ref {from_ref!r} — treating as empty baseline.",
+            file=sys.stderr,
         )
+        old_index = {"version": 1, "classes": [], "modules": [], "moduleEdges": [], "entryPoints": []}
 
-    if isinstance(raw, list):
-        _save_json(input_path, entries)
+    # ---- Load "new" index ----
+    if to_ref:
+        new_index = load_index_from_git(to_ref, index_path)
+        if new_index is None:
+            print(f"ERROR: No blueprint index found at ref {to_ref!r}", file=sys.stderr)
+            return 1
+        git_meta = get_git_commit_meta(to_ref)
     else:
-        raw["version"] = 3
-        _save_json(input_path, raw)
+        # Compare against working-tree file
+        if not os.path.isfile(index_path):
+            print(f"ERROR: Blueprint index not found: {index_path}", file=sys.stderr)
+            print("Run `blueprint scan` first to generate the index.", file=sys.stderr)
+            return 1
+        new_index = _load_json(index_path)
+        git_meta = get_git_commit_meta("HEAD")
 
+    record = diff_indices(old_index, new_index, git_meta, index_path)
+
+    if record is None:
+        print("[blueprint diff] No structural changes detected — blueprint_changes.json not updated.")
+        return 0
+
+    # ---- Append to blueprint_changes.json ----
+    changes: dict[str, Any] = {"version": 1, "records": []}
+    if os.path.isfile(output_path):
+        try:
+            changes = _load_json(output_path)
+            changes.setdefault("records", [])
+        except Exception:
+            print(
+                f"WARNING: Could not parse existing {output_path} — starting fresh.",
+                file=sys.stderr,
+            )
+
+    changes["records"].append(record)
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(changes, f, indent=2)
+
+    added_n    = len(record.get("added", []))
+    removed_n  = len(record.get("removed", []))
+    modified_n = len(record.get("modified", []))
+    direct_n   = len(record.get("impact", {}).get("direct", []))
+    indirect_n = len(record.get("impact", {}).get("indirect", []))
+    print(
+        f"[blueprint diff] Appended record to {output_path}\n"
+        f"  commit   : {record['commit'][:12]}  {record['message']}\n"
+        f"  classes  : +{added_n} added  -{removed_n} removed  ~{modified_n} modified\n"
+        f"  impact   : {direct_n} direct  {indirect_n} indirect"
+    )
     return 0
 
 
@@ -432,6 +507,36 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to a call_graph.json file (for sequence diagrams)",
     )
 
+    # --- diff ---
+    diff_parser = subparsers.add_parser(
+        "diff",
+        help="Diff two blueprint indices and append a ChangeRecord to blueprint_changes.json",
+    )
+    diff_parser.add_argument(
+        "--from",
+        dest="from_ref",
+        default="HEAD",
+        metavar="REF",
+        help="Git ref for the baseline index (default: HEAD)",
+    )
+    diff_parser.add_argument(
+        "--to",
+        dest="to_ref",
+        default=None,
+        metavar="REF",
+        help="Git ref for the new index (default: working-tree file)",
+    )
+    diff_parser.add_argument(
+        "--index",
+        default="blueprint_index.json",
+        help="Relative path inside the repo to blueprint_index.json (default: blueprint_index.json)",
+    )
+    diff_parser.add_argument(
+        "--output", "-o",
+        default="blueprint_changes.json",
+        help="Path to blueprint_changes.json to append to (default: blueprint_changes.json)",
+    )
+
     # --- cache-stats ---
     stats_parser = subparsers.add_parser(
         "cache-stats",
@@ -455,6 +560,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         "scan": cmd_scan,
         "diagram": cmd_diagram,
         "enrich": cmd_enrich,
+        "diff": cmd_diff,
         "cache-stats": cmd_cache_stats,
     }
 
