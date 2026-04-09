@@ -32,6 +32,7 @@ export interface ModuleEntry {
   summarySeed: string;
   internalEdgeCount: number;
   externalDeps: { target: string; weight: number; depTypes: string[] }[];
+  summary?: string;
 }
 
 export interface ModuleEdge {
@@ -49,6 +50,7 @@ export interface EntryPoint {
 export interface BlueprintIndex {
   version: number;
   projectName?: string;
+  projectSummary?: string;
   modules: ModuleEntry[];
   moduleEdges: ModuleEdge[];
   entryPoints: EntryPoint[];

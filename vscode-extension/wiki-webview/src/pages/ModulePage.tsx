@@ -41,6 +41,7 @@ export function ModulePage({ module: mod, index, onNavigate }: Props) {
         </div>
         <h1 class="page-title">▦ {mod.name}</h1>
         {mod.namespace && <div class="page-subtitle">namespace: {mod.namespace}</div>}
+        {mod.summary && <p class="page-prose">{mod.summary}</p>}
       </header>
 
       <section class="stats-row">

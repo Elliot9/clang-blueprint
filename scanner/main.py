@@ -245,62 +245,66 @@ def cmd_enrich(args: argparse.Namespace) -> int:
         return 1
 
     raw = _load_json(input_path)
+    # Normalise to v2+ object form
     if isinstance(raw, list):
-        entries = raw
-        reverse_deps: dict = {}
+        index: dict[str, Any] = {
+            "version": 4,
+            "classes": raw,
+            "modules": [],
+            "moduleEdges": [],
+            "entryPoints": [],
+        }
     else:
-        entries = raw.get("classes", [])
-        # Try to load reverse deps from graph file
-        graph_file = os.path.join(os.path.dirname(os.path.abspath(input_path)), "blueprint_graph.json")
-        if os.path.isfile(graph_file):
-            g = _load_json(graph_file)
-            reverse_deps = g.get("reverseDeps", {})
-        else:
-            reverse_deps = {}
+        index = raw
 
-    from scanner.semantic_enricher import enrich_all_heuristic, enrich_all_llm
+    entries = index.get("classes", [])
+
+    # Load reverse deps from graph file if available
+    graph_file = os.path.join(os.path.dirname(os.path.abspath(input_path)), "blueprint_graph.json")
+    reverse_deps: dict[str, list[str]] = {}
+    if os.path.isfile(graph_file):
+        g = _load_json(graph_file)
+        reverse_deps = g.get("reverseDeps", {})
+
+    from scanner.semantic_enricher import enrich_all_heuristic, enrich_index_llm
 
     use_llm = getattr(args, "llm", False)
-    if use_llm:
-        anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
-        gemini_key = os.environ.get("GEMINI_API_KEY")
-        if not anthropic_key and not gemini_key:
-            print(
-                "WARNING: --llm requires ANTHROPIC_API_KEY or GEMINI_API_KEY. "
-                "Falling back to heuristic.",
-                file=sys.stderr,
-            )
-            use_llm = False
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+    gemini_key = os.environ.get("GEMINI_API_KEY")
 
+    if use_llm and not anthropic_key and not gemini_key:
+        print(
+            "WARNING: --llm requires ANTHROPIC_API_KEY or GEMINI_API_KEY. "
+            "Falling back to heuristic only.",
+            file=sys.stderr,
+        )
+        use_llm = False
+
+    # Always run heuristic first (fast, no API)
     enrich_all_heuristic(entries, reverse_deps)
 
-    llm_n = cached_n = 0
     if use_llm:
         sem_cache = os.path.join(
             os.path.dirname(os.path.abspath(input_path)),
             ".blueprint_semantic_cache.json",
         )
-        total, llm_n, cached_n = enrich_all_llm(
-            entries, reverse_deps,
+        stats = enrich_index_llm(
+            index, reverse_deps,
             cache_path=sem_cache,
-            anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY"),
-            gemini_api_key=os.environ.get("GEMINI_API_KEY"),
+            anthropic_api_key=anthropic_key,
+            gemini_api_key=gemini_key,
         )
         print(
-            f"[blueprint] LLM enrichment: {llm_n} new, {cached_n} cached, {total} total"
+            f"[blueprint] LLM enrichment complete:\n"
+            f"  classes — {stats['classes_llm']} new, {stats['classes_cached']} cached\n"
+            f"  modules — {stats['modules_llm']} new, {stats['modules_cached']} cached\n"
+            f"  project — {'generated' if stats['project_llm'] else 'cached'}"
         )
     else:
-        print(
-            f"[blueprint] Heuristic enrichment: {len(entries)} classes "
-            f"(heuristic: {len(entries)}, llm: 0)"
-        )
+        print(f"[blueprint] Heuristic enrichment: {len(entries)} classes enriched (no LLM)")
 
-    if isinstance(raw, list):
-        _save_json(input_path, entries)
-    else:
-        raw["version"] = 3
-        _save_json(input_path, raw)
-
+    index["version"] = 4
+    _save_json(input_path, index)
     return 0
 
 

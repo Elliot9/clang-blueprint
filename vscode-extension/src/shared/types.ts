@@ -89,6 +89,8 @@ export interface ModuleEntry {
   summarySeed: string;
   internalEdgeCount: number;
   externalDeps: { target: string; weight: number; depTypes: string[] }[];
+  /** LLM-generated 2-3 sentence prose summary (blueprint enrich --llm) */
+  summary?: string;
 }
 
 export interface ModuleEdge {
@@ -105,14 +107,17 @@ export interface EntryPoint {
 }
 
 /**
- * V3 index wrapper.
+ * V4 index wrapper.
  * - v1: bare ClassEntry[] (no wrapper)
  * - v2: object with modules/moduleEdges/entryPoints
  * - v3: v2 + semantic enrichment fields on ClassEntry (intent/tradeoffs/changeRisk/designPattern)
+ * - v4: v3 + module.summary + projectSummary (LLM-generated prose, blueprint enrich --llm)
  */
 export interface BlueprintIndex {
   version: number;
   projectName?: string;
+  /** LLM-generated 2-3 sentence overview of the entire project (blueprint enrich --llm) */
+  projectSummary?: string;
   modules: ModuleEntry[];
   moduleEdges: ModuleEdge[];
   entryPoints: EntryPoint[];
