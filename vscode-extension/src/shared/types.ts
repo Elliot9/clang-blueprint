@@ -124,6 +124,62 @@ export interface BlueprintIndex {
   classes: ClassEntry[];
 }
 
+// ---------------------------------------------------------------------------
+// Change Report layer (blueprint_changes.json — Direction B)
+// ---------------------------------------------------------------------------
+
+export interface ClassDiff {
+  className: string;
+  interfaceChanges?: {
+    added: string[];
+    removed: string[];
+  };
+  depChanges?: Array<{
+    target: string;
+    change: 'added' | 'removed' | 'type_changed';
+    /** present for added/removed */
+    type?: string;
+    /** present for type_changed */
+    from?: string;
+    to?: string;
+  }>;
+  riskChange?: { from: string; to: string };
+  fileLocationChange?: { from: string; to: string };
+}
+
+export interface ChangeRecord {
+  commit: string;
+  author: string;
+  email: string;
+  date: string;
+  message: string;
+  indexFile: string;
+  added: Array<{
+    className: string;
+    fileLocation?: string;
+    designPattern?: string;
+    changeRisk?: string;
+  }>;
+  removed: Array<{ className: string; fileLocation?: string }>;
+  modified: ClassDiff[];
+  modulesAdded: string[];
+  modulesRemoved: string[];
+  modulesModified: Array<{
+    name: string;
+    classesAdded: string[];
+    classesRemoved: string[];
+  }>;
+  impact: {
+    direct: string[];
+    indirect: string[];
+  };
+}
+
+export interface BlueprintChanges {
+  version: number;
+  records: ChangeRecord[];
+}
+
 /** Module-level AI summary (P23) */
 export interface ModuleSummary {
   intent: string;

@@ -1,14 +1,15 @@
 import { h } from 'preact';
 import { useState } from 'preact/hooks';
-import type { BlueprintIndex, PageRef } from '../types';
+import type { BlueprintIndex, BlueprintChanges, PageRef } from '../types';
 
 interface Props {
   index: BlueprintIndex;
+  changes?: BlueprintChanges;
   current: PageRef;
   onNavigate: (page: PageRef) => void;
 }
 
-export function Sidebar({ index, current, onNavigate }: Props) {
+export function Sidebar({ index, changes, current, onNavigate }: Props) {
   const [expandedModules, setExpandedModules] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState('');
 
@@ -58,6 +59,19 @@ export function Sidebar({ index, current, onNavigate }: Props) {
         >
           <span class="nav-icon">⬡</span> Overview
         </button>
+
+        {changes && (
+          <button
+            class={`nav-item ${isActive({ kind: 'changes' }) ? 'active' : ''}`}
+            onClick={() => onNavigate({ kind: 'changes' })}
+          >
+            <span class="nav-icon">⊿</span>
+            <span class="nav-label">Change Report</span>
+            {changes.records.length > 0 && (
+              <span class="nav-badge">{changes.records.length}</span>
+            )}
+          </button>
+        )}
 
         <div class="nav-section-label">Modules</div>
         {filteredModules.map(mod => {
